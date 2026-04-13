@@ -5,9 +5,8 @@ Workflow-related SQLAlchemy models for data persistence.
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, JSON, ForeignKey
-from sqlalchemy.sql import func
-
+from sqlalchemy import Column, String, Text, Boolean, JSON, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column
 from .base import Base
 
 
@@ -15,142 +14,163 @@ class WorkflowState(Base):
     """Workflow state model for storing workflow execution states."""
     
     __tablename__ = "workflow_states"
+    __table_args__ = {"extend_existing": True}
     
     # Override base fields for this specific table
-    workflow_id = Column(String(100), nullable=False, unique=True, index=True)
-    workflow_data = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=func.now(), onupdate=func.now())
+    workflow_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
+    workflow_data: Mapped[str] = mapped_column(Text, nullable=False)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert workflow state to dictionary."""
         return {
-            "id": self.id,
+            "id": self.uuid,
             "workflow_id": self.workflow_id,
             "workflow_data": self.workflow_data,
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
 class Workflow(Base):
-    """Workflow model for managing workflow definitions."""
+    """Workflow model for storing workflow definitions."""
     
     __tablename__ = "workflows"
     
-    name = Column(String(100), nullable=False)
-    description = Column(Text, nullable=True)
-    config = Column(JSON, nullable=True)
-    is_active = Column(Boolean, nullable=False, default=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    definition: Mapped[str] = mapped_column(JSON, nullable=False)
+    version: Mapped[str] = mapped_column(String(50), nullable=False, default="1.0")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert workflow to dictionary."""
         return {
-            "id": self.id,
+            "id": self.uuid,
             "name": self.name,
             "description": self.description,
-            "config": self.config,
+            "definition": self.definition,
+            "version": self.version,
             "is_active": self.is_active,
+            "created_by": self.created_by,
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
 class WorkflowTransition(Base):
-    """Workflow transition model for tracking state changes."""
+    """Workflow transition model for tracking workflow state changes."""
     
     __tablename__ = "workflow_transitions"
     
-    workflow_id = Column(String(100), nullable=False, index=True)
-    from_state = Column(String(100), nullable=False)
-    to_state = Column(String(100), nullable=False)
-    transition_data = Column(JSON, nullable=True)
+    workflow_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    from_state: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    to_state: Mapped[str] = mapped_column(String(100), nullable=False)
+    transition_data: Mapped[Optional[str]] = mapped_column(JSON, nullable=True)
+    triggered_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert workflow transition to dictionary."""
         return {
-            "id": self.id,
+            "id": self.uuid,
             "workflow_id": self.workflow_id,
             "from_state": self.from_state,
             "to_state": self.to_state,
             "transition_data": self.transition_data,
+            "triggered_by": self.triggered_by,
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
 class URLInfo(Base):
-    """URL information model for storing URL metadata."""
+    """URL information model for storing URL metadata and analysis results."""
     
     __tablename__ = "url_info"
     
-    url = Column(String(1000), nullable=False)
-    title = Column(String(500), nullable=True)
-    description = Column(Text, nullable=True)
-    url_metadata = Column(JSON, nullable=True)
+    url: Mapped[str] = mapped_column(String(2000), nullable=False, unique=True, index=True)
+    title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    domain: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    status_code: Mapped[Optional[int]] = mapped_column(String(10), nullable=True)
+    content_type: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    content_length: Mapped[Optional[int]] = mapped_column(String(20), nullable=True)
+    last_crawled: Mapped[Optional[datetime]] = mapped_column(String(50), nullable=True)
+    url_metadata: Mapped[Optional[str]] = mapped_column(JSON, nullable=True)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert URL info to dictionary."""
         return {
-            "id": self.id,
+            "id": self.uuid,
             "url": self.url,
             "title": self.title,
             "description": self.description,
+            "domain": self.domain,
+            "status_code": self.status_code,
+            "content_type": self.content_type,
+            "content_length": self.content_length,
+            "last_crawled": self.last_crawled,
             "metadata": self.url_metadata,
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
 class SchemaField(Base):
-    """Schema field model for defining data schemas."""
+    """Schema field model for storing form schema definitions."""
     
     __tablename__ = "schema_fields"
     
-    name = Column(String(100), nullable=False)
-    field_type = Column(String(50), nullable=False)
-    required = Column(Boolean, nullable=False, default=False)
-    default_value = Column(Text, nullable=True)
-    description = Column(Text, nullable=True)
+    field_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    field_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    field_label: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    field_options: Mapped[Optional[str]] = mapped_column(JSON, nullable=True)
+    required: Mapped[bool] = mapped_column(Boolean, default=False)
+    default_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    validation_rules: Mapped[Optional[str]] = mapped_column(JSON, nullable=True)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert schema field to dictionary."""
         return {
-            "id": self.id,
-            "name": self.name,
+            "id": self.uuid,
+            "field_name": self.field_name,
             "field_type": self.field_type,
+            "field_label": self.field_label,
+            "field_options": self.field_options,
             "required": self.required,
             "default_value": self.default_value,
-            "description": self.description,
+            "validation_rules": self.validation_rules,
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
 class ApprovalRequest(Base):
-    """Approval request model for workflow approvals."""
+    """Approval request model for workflow approval processes."""
     
     __tablename__ = "approval_requests"
     
-    workflow_id = Column(String(100), nullable=False, index=True)
-    requester_id = Column(String(100), nullable=False)
-    approver_id = Column(String(100), nullable=True)
-    status = Column(String(20), nullable=False, default='pending')
-    request_data = Column(JSON, nullable=True)
-    response_data = Column(JSON, nullable=True)
+    workflow_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    request_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    request_data: Mapped[str] = mapped_column(JSON, nullable=False)
+    requested_by: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
+    approved_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    approval_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert approval request to dictionary."""
         return {
-            "id": self.id,
+            "id": self.uuid,
             "workflow_id": self.workflow_id,
-            "requester_id": self.requester_id,
-            "approver_id": self.approver_id,
-            "status": self.status,
+            "request_type": self.request_type,
             "request_data": self.request_data,
-            "response_data": self.response_data,
+            "requested_by": self.requested_by,
+            "status": self.status,
+            "approved_by": self.approved_by,
+            "approval_notes": self.approval_notes,
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
@@ -159,21 +179,25 @@ class PipelineExecution(Base):
     
     __tablename__ = "pipeline_executions"
     
-    pipeline_id = Column(String(100), nullable=False, index=True)
-    status = Column(String(20), nullable=False, default='running')
-    config = Column(JSON, nullable=True)
-    result_data = Column(JSON, nullable=True)
-    error_message = Column(Text, nullable=True)
+    pipeline_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    execution_data: Mapped[str] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="running")
+    started_by: Mapped[str] = mapped_column(String(100), nullable=False)
+    started_at: Mapped[Optional[datetime]] = mapped_column(String(50), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(String(50), nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert pipeline execution to dictionary."""
         return {
-            "id": self.id,
+            "id": self.uuid,
             "pipeline_id": self.pipeline_id,
+            "execution_data": self.execution_data,
             "status": self.status,
-            "config": self.config,
-            "result_data": self.result_data,
+            "started_by": self.started_by,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "error_message": self.error_message,
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

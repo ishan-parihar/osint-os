@@ -4,7 +4,7 @@ Enhanced database service for ScrapeCraft with proper persistence layer.
 
 import json
 import logging
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Generator, AsyncGenerator
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text, and_, or_
 from sqlalchemy.orm import sessionmaker, Session
@@ -38,7 +38,9 @@ else:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Dependency to get DB session
-def get_db():
+from typing import Generator
+
+def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
@@ -46,7 +48,7 @@ def get_db():
         db.close()
 
 @asynccontextmanager
-async def get_async_db():
+async def get_async_db() -> AsyncGenerator[Session, None]:
     """Async context manager for database sessions."""
     db = SessionLocal()
     try:
@@ -69,16 +71,16 @@ class DatabasePersistenceService:
     previously stored only in memory.
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.engine = engine
         self.SessionLocal = SessionLocal
         # Rate limiting to prevent database spam
-        self._last_store_time = {}
-        self._pending_states = {}
+        self._last_store_time: Dict[str, float] = {}
+        self._pending_states: Dict[str, Dict[str, Any]] = {}
         self._store_lock = asyncio.Lock()
         self._min_store_interval = 0.5  # Minimum 0.5 seconds between stores per investigation
         
-    def initialize_database(self):
+    def initialize_database(self) -> None:
         """Initialize database tables and create indexes."""
         try:
             # Create tables manually using raw SQL to avoid import issues
@@ -280,7 +282,9 @@ class DatabasePersistenceService:
                 ).fetchone()
                 
                 if result:
-                    return json.loads(result[0])
+                    loaded_data = json.loads(result[0])
+                    if isinstance(loaded_data, dict):
+                        return loaded_data
                 return None
                 
         except Exception as e:
@@ -347,7 +351,9 @@ class DatabasePersistenceService:
                 ).fetchone()
                 
                 if result:
-                    return json.loads(result[0])
+                    loaded_data = json.loads(result[0])
+                    if isinstance(loaded_data, dict):
+                        return loaded_data
                 return None
                 
         except Exception as e:
@@ -529,7 +535,9 @@ class DatabasePersistenceService:
                 ).fetchone()
                 
                 if result:
-                    return json.loads(result[0])
+                    loaded_data = json.loads(result[0])
+                    if isinstance(loaded_data, dict):
+                        return loaded_data
                 return None
                 
         except Exception as e:

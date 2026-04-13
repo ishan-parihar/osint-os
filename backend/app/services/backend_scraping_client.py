@@ -1,5 +1,6 @@
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
+from types import TracebackType
 import aiohttp
 import logging
 
@@ -15,15 +16,20 @@ class BackendScrapingClient:
         self.timeout = aiohttp.ClientTimeout(total=timeout)
         self.session: Optional[aiohttp.ClientSession] = None
     
-    async def __aenter__(self):
+    async def __aenter__(self) -> "BackendScrapingClient":
         self.session = aiohttp.ClientSession(timeout=self.timeout)
         return self
     
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self, 
+        exc_type: Optional[type[BaseException]], 
+        exc_val: Optional[BaseException], 
+        exc_tb: Optional[TracebackType]
+    ) -> None:
         if self.session:
             await self.session.close()
     
-    async def execute_scraping(self, urls: List[str], prompt: str, schema: Optional[Dict] = None) -> Dict[str, Any]:
+    async def execute_scraping(self, urls: List[str], prompt: str, schema: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Execute scraping task via backend API"""
         if not self.session:
             raise RuntimeError("Client not initialized. Use as async context manager.")
@@ -38,7 +44,7 @@ class BackendScrapingClient:
         try:
             async with self.session.post(url, json=payload) as response:
                 if response.status == 200:
-                    result = await response.json()
+                    result: Dict[str, Any] = await response.json()
                     return result
                 else:
                     error_text = await response.text()
@@ -61,7 +67,7 @@ class BackendScrapingClient:
         try:
             async with self.session.get(url) as response:
                 if response.status == 200:
-                    result = await response.json()
+                    result: Dict[str, Any] = await response.json()
                     return result
                 else:
                     error_text = await response.text()
@@ -81,7 +87,7 @@ class BackendScrapingClient:
         try:
             async with self.session.get(url) as response:
                 if response.status == 200:
-                    result = await response.json()
+                    result: List[Dict[str, Any]] = await response.json()
                     return result
                 else:
                     error_text = await response.text()
@@ -102,8 +108,9 @@ class BackendScrapingClient:
         try:
             async with self.session.post(url, json=payload) as response:
                 if response.status == 200:
-                    result = await response.json()
-                    return result.get("results", [])
+                    result: Dict[str, Any] = await response.json()
+                    search_results: List[Dict[str, str]] = result.get("results", [])
+                    return search_results
                 else:
                     error_text = await response.text()
                     logger.error(f"URL search failed: {response.status} - {error_text}")
@@ -123,7 +130,7 @@ class BackendScrapingClient:
         try:
             async with self.session.post(validate_url, json=payload) as response:
                 if response.status == 200:
-                    result = await response.json()
+                    result: Dict[str, Any] = await response.json()
                     return result
                 else:
                     error_text = await response.text()

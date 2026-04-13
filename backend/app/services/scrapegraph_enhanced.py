@@ -12,11 +12,11 @@ logger = logging.getLogger(__name__)
 class ScrapeGraphEnhanced:
     """Enhanced ScrapeGraphAI service with OSINT capabilities"""
     
-    def __init__(self):
-        self.graphs = {}
+    def __init__(self) -> None:
+        self.graphs: Dict[str, Any] = {}
         self._initialize_graphs()
     
-    def _initialize_graphs(self):
+    def _initialize_graphs(self) -> None:
         """Initialize all available graphs"""
         try:
             # Import ScrapeGraphAI components dynamically
@@ -47,7 +47,7 @@ class ScrapeGraphEnhanced:
         except Exception as e:
             logger.error(f"Failed to initialize ScrapeGraphAI graphs: {e}")
     
-    async def execute_scraping(self, graph_type: str, prompt: str, source: str, config: Dict = None) -> Dict[str, Any]:
+    async def execute_scraping(self, graph_type: str, prompt: str, source: str, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Execute scraping with specified graph type"""
         try:
             if graph_type not in self.graphs:
@@ -98,7 +98,7 @@ class ScrapeGraphEnhanced:
                 "data": None
             }
     
-    async def _run_graph(self, graph) -> Dict[str, Any]:
+    async def _run_graph(self, graph: Any) -> Dict[str, Any]:
         """Run the graph and return results"""
         try:
             # For now, return a placeholder result

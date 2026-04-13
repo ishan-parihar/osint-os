@@ -56,11 +56,13 @@ class UserCreate(BaseModel):
     role: UserRole = UserRole.VIEWER
     
     @validator('username')
-    def validate_username(cls, v):
+    @classmethod
+    def validate_username(cls, v: str) -> str:
         return InputValidator.validate_username(v)
     
     @validator('password')
-    def validate_password(cls, v):
+    @classmethod
+    def validate_password(cls, v: str) -> str:
         if security_config:
             return InputValidator.validate_password(v, security_config)
         return v
@@ -171,20 +173,31 @@ class AuthenticationService:
                 updated_at=datetime.now(timezone.utc)
             )
             
-            # Store user in Redis
+# Store user in Redis
             user_key = self._get_user_key(user.username)
-            user_data = user.dict()
-            user_data['created_at'] = user.created_at.isoformat()
-            user_data['updated_at'] = user.updated_at.isoformat()
+            user_dict: Dict[str, Any] = {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'full_name': user.full_name,
+                'hashed_password': user.hashed_password,
+                'role': user.role.value,
+                'status': user.status.value,
+                'created_at': user.created_at.isoformat(),
+                'updated_at': user.updated_at.isoformat(),
+                'failed_login_attempts': user.failed_login_attempts,
+                'mfa_enabled': user.mfa_enabled,
+                'mfa_secret': user.mfa_secret
+            }
             if user.last_login:
-                user_data['last_login'] = user.last_login.isoformat()
+                user_dict['last_login'] = user.last_login.isoformat()
             if user.locked_until:
-                user_data['locked_until'] = user.locked_until.isoformat()
+                user_dict['locked_until'] = user.locked_until.isoformat()
             
             self.redis.setex(
                 user_key,
-                86400 * 365,  # 1 year expiration
-                json.dumps(user_data)
+                86400 * 365,  # 1 year expiration,
+                json.dumps(user_dict)
             )
             
             # Log user creation
@@ -225,7 +238,9 @@ class AuthenticationService:
             if not user_data:
                 return None
             
-            data = json.loads(user_data)
+            # Decode bytes to string if needed
+            user_data_str = user_data.decode('utf-8') if isinstance(user_data, bytes) else user_data
+            data = json.loads(user_data_str)  # type: ignore
             
             # Convert string timestamps back to datetime objects
             data['created_at'] = datetime.fromisoformat(data['created_at'])
@@ -388,7 +403,7 @@ class AuthenticationService:
     
     async def record_failed_attempt(self, username: str, ip_address: str, 
                                   user_agent: Optional[str] = None, 
-                                  reason: str = "invalid_credentials"):
+                                  reason: str = "invalid_credentials") -> None:
         """
         Record a failed login attempt.
         
@@ -403,13 +418,13 @@ class AuthenticationService:
             if user:
                 # Increment failed attempts
                 new_failed_count = user.failed_login_attempts + 1
-                updates = {"failed_login_attempts": new_failed_count}
+                updates: Dict[str, Any] = {"failed_login_attempts": new_failed_count}
                 
                 # Lock account if threshold reached
                 if new_failed_count >= self.max_failed_attempts:
                     locked_until = datetime.now(timezone.utc) + timedelta(seconds=self.lockout_duration)
-                    updates["locked_until"] = locked_until
-                    updates["status"] = UserStatus.LOCKED
+                    updates["locked_until"] = locked_until.isoformat()
+                    updates["status"] = UserStatus.LOCKED.value
                     
                     if audit_logger:
                         audit_logger.log_security_event(
@@ -561,8 +576,12 @@ class AuthenticationService:
             )
             
             # Extract JTI from token
-            decoded = jwt.decode(token, options={"verify_signature": False})
+            decoded = jwt.decode(token, security_config.JWT_SECRET, options={"verify_signature": False})
             token_jti = decoded.get("jti")
+            
+            if not token_jti:
+                # Generate a fallback JTI if not present in token
+                token_jti = f"fallback_{secrets.token_hex(16)}"
             
             return token, token_jti
             
@@ -612,8 +631,12 @@ class AuthenticationService:
             )
             
             # Extract JTI
-            decoded = jwt.decode(refresh_token, options={"verify_signature": False})
+            decoded = jwt.decode(refresh_token, security_config.JWT_SECRET, options={"verify_signature": False})
             refresh_jti = decoded.get("jti")
+            
+            if not refresh_jti:
+                # Generate a fallback JTI if not present in token
+                refresh_jti = f"refresh_fallback_{secrets.token_hex(16)}"
             
             # Store refresh token metadata
             refresh_key = self._get_refresh_token_key(refresh_jti)
@@ -704,7 +727,7 @@ class AuthenticationService:
             )
     
     async def blacklist_token(self, token_jti: str, expires_at: datetime, 
-                            user_id: str, reason: str = "logout"):
+                            user_id: str, reason: str = "logout") -> None:
         """
         Add token to blacklist.
         
@@ -759,7 +782,7 @@ class AuthenticationService:
         """
         try:
             blacklist_key = self._get_token_blacklist_key(token_jti)
-            return self.redis.exists(blacklist_key)
+            return bool(self.redis.exists(blacklist_key))
         except Exception as e:
             logger.error(f"Token blacklist check error: {e}")
             return False
@@ -849,7 +872,7 @@ class AuthenticationService:
 # Global authentication service instance
 auth_service: Optional[AuthenticationService] = None
 
-def initialize_auth_service(redis_client: redis.Redis):
+def initialize_auth_service(redis_client: redis.Redis) -> None:
     """Initialize authentication service."""
     global auth_service
     auth_service = AuthenticationService(redis_client)
@@ -870,10 +893,10 @@ async def get_current_user(
     return await auth_service.get_current_user(token, request)
 
 # Role-based access control decorators
-def require_role(required_role: UserRole):
+def require_role(required_role: UserRole) -> Any:
     """Decorator to require specific user role."""
-    def decorator(func):
-        async def wrapper(*args, **kwargs):
+    def decorator(func: Any) -> Any:
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Get user from kwargs if available
             user = None
             for key, value in kwargs.items():
@@ -904,10 +927,10 @@ def require_role(required_role: UserRole):
         return wrapper
     return decorator
 
-def require_permission(permission: str):
+def require_permission(permission: str) -> Any:
     """Decorator to require specific permission."""
-    def decorator(func):
-        async def wrapper(*args, **kwargs):
+    def decorator(func: Any) -> Any:
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Get user from kwargs if available
             user = None
             for key, value in kwargs.items():

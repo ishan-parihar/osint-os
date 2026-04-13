@@ -13,17 +13,17 @@ import asyncio
 import logging
 import json
 import time
-from typing import Dict, List, Optional, Any, Union, Callable
+from typing import Dict, List, Optional, Any, Union, Callable, AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 import hashlib
 import pickle
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, AbstractAsyncContextManager
 from functools import wraps
 
 import redis.asyncio as redis
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
 from sqlalchemy.pool import QueuePool
 import httpx
 
@@ -86,7 +86,7 @@ class CacheManager:
         }
         self._lock = asyncio.Lock()
     
-    async def initialize(self, redis_url: Optional[str] = None):
+    async def initialize(self, redis_url: Optional[str] = None) -> None:
         """Initialize cache manager with Redis connection."""
         try:
             if redis_url:
@@ -96,7 +96,7 @@ class CacheManager:
                     decode_responses=False
                 )
                 # Test connection
-                await self.redis_client.ping()
+                await self.redis_client.ping()  # type: ignore[misc]
                 logger.info("Cache manager initialized with Redis")
             else:
                 logger.warning("Cache manager initialized without Redis (local cache only)")
@@ -104,7 +104,7 @@ class CacheManager:
             logger.error(f"Failed to initialize Redis cache: {e}")
             self.redis_client = None
     
-    async def close(self):
+    async def close(self) -> None:
         """Close cache manager connections."""
         if self.redis_client:
             await self.redis_client.close()
@@ -116,7 +116,7 @@ class CacheManager:
         
         # Hash long keys to avoid Redis key length limits
         if len(full_key) > 250:
-            full_key = f"{prefix}:{hashlib.md5(key_str.encode()).hexdigest()}"
+            full_key = f"{prefix}:{hashlib.sha256(key_str.encode()).hexdigest()}"
         
         return full_key
     
@@ -267,7 +267,7 @@ class CacheManager:
             logger.error(f"Cache clear prefix error for '{prefix}': {e}")
             return 0
     
-    async def _enforce_size_limit(self):
+    async def _enforce_size_limit(self) -> None:
         """Enforce cache size limit based on strategy."""
         if len(self.local_cache) <= self.config.max_size:
             return
@@ -314,8 +314,8 @@ class DatabaseConnectionManager:
     
     def __init__(self, config: ConnectionPoolConfig):
         self.config = config
-        self.engine = None
-        self.session_factory = None
+        self.engine: Optional[AsyncEngine] = None
+        self.session_factory: Optional[async_sessionmaker[AsyncSession]] = None
         self.pool_stats = {
             "total_connections": 0,
             "active_connections": 0,
@@ -323,7 +323,7 @@ class DatabaseConnectionManager:
             "pool_misses": 0
         }
     
-    async def initialize(self, database_url: str):
+    async def initialize(self, database_url: str) -> None:
         """Initialize database connection pool."""
         try:
             self.engine = create_async_engine(
@@ -349,13 +349,13 @@ class DatabaseConnectionManager:
             logger.error(f"Failed to initialize database pool: {e}")
             raise
     
-    async def close(self):
+    async def close(self) -> None:
         """Close database connection pool."""
         if self.engine:
             await self.engine.dispose()
     
     @asynccontextmanager
-    async def get_session(self) -> AsyncSession:
+    async def get_session(self) -> AsyncGenerator[AsyncSession, None]:
         """Get database session from pool."""
         if not self.session_factory:
             raise RuntimeError("Database pool not initialized")
@@ -378,11 +378,11 @@ class DatabaseConnectionManager:
             pool = self.engine.pool
             return {
                 "status": "healthy",
-                "size": pool.size(),
-                "checked_in": pool.checkedin(),
-                "checked_out": pool.checkedout(),
-                "overflow": pool.overflow(),
-                "invalid": pool.invalid()
+                "size": pool.size(),  # type: ignore[attr-defined]
+                "checked_in": pool.checkedin(),  # type: ignore[attr-defined]
+                "checked_out": pool.checkedout(),  # type: ignore[attr-defined]
+                "overflow": pool.overflow(),  # type: ignore[attr-defined]
+                "invalid": pool.invalid()  # type: ignore[attr-defined]
             }
         except Exception as e:
             return {"status": "unhealthy", "error": str(e)}
@@ -392,7 +392,7 @@ class HTTPConnectionManager:
     
     def __init__(self, config: ConnectionPoolConfig):
         self.config = config
-        self.client = None
+        self.client: Optional[httpx.AsyncClient] = None
         self.request_stats = {
             "total_requests": 0,
             "successful_requests": 0,
@@ -400,7 +400,7 @@ class HTTPConnectionManager:
             "total_response_time": 0.0
         }
     
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Initialize HTTP connection pool."""
         try:
             self.client = httpx.AsyncClient(
@@ -419,12 +419,12 @@ class HTTPConnectionManager:
             logger.error(f"Failed to initialize HTTP pool: {e}")
             raise
     
-    async def close(self):
+    async def close(self) -> None:
         """Close HTTP connection pool."""
         if self.client:
             await self.client.aclose()
     
-    async def request(self, method: str, url: str, **kwargs) -> httpx.Response:
+    async def request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         """Make HTTP request with connection pooling."""
         if not self.client:
             raise RuntimeError("HTTP pool not initialized")
@@ -469,7 +469,7 @@ class HTTPConnectionManager:
 class ConnectionManager:
     """Main connection and caching manager."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.cache_config = CacheConfig()
         self.pool_config = ConnectionPoolConfig()
         
@@ -483,7 +483,7 @@ class ConnectionManager:
         self,
         redis_url: Optional[str] = None,
         database_url: Optional[str] = None
-    ):
+    ) -> None:
         """Initialize all connection managers."""
         if self._initialized:
             return
@@ -503,7 +503,7 @@ class ConnectionManager:
         self._initialized = True
         logger.info("Connection manager initialized successfully")
     
-    async def close(self):
+    async def close(self) -> None:
         """Close all connection managers."""
         logger.info("Closing connection manager...")
         
@@ -524,17 +524,18 @@ class ConnectionManager:
         }
         
         # Determine overall status
-        if health["database"]["status"] != "healthy":
+        database_health = health["database"]
+        if isinstance(database_health, dict) and database_health.get("status") != "healthy":
             health["overall_status"] = "degraded"
         
         return health
 
 # Decorators for easy caching
-def cache_result(prefix: str, ttl: int = 3600):
+def cache_result(prefix: str, ttl: int = 3600) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator to cache function results."""
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Generate cache key from function name and arguments
             cache_key_parts = [func.__name__] + list(args) + list(kwargs.items())
             
@@ -569,12 +570,12 @@ def get_connection_manager() -> ConnectionManager:
 async def initialize_connections(
     redis_url: Optional[str] = None,
     database_url: Optional[str] = None
-):
+) -> None:
     """Initialize global connection manager."""
     manager = get_connection_manager()
     await manager.initialize(redis_url, database_url)
 
-async def close_connections():
+async def close_connections() -> None:
     """Close global connection manager."""
     global _connection_manager
     
@@ -586,7 +587,7 @@ async def close_connections():
 async def connection_context(
     redis_url: Optional[str] = None,
     database_url: Optional[str] = None
-):
+) -> AsyncGenerator[ConnectionManager, None]:
     """Context manager for connections."""
     await initialize_connections(redis_url, database_url)
     try:

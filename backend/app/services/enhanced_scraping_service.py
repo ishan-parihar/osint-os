@@ -23,14 +23,17 @@ try:
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
-    AsyncOpenAI = None
+    
+# Type alias for when OpenAI is not available
+if not OPENAI_AVAILABLE:
+    AsyncOpenAI: Any = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
 class EnhancedScrapingService:
     """Enhanced scraping service with real web scraping capabilities."""
     
-    def __init__(self, llm_config: Optional[Dict] = None):
+    def __init__(self, llm_config: Optional[Dict[str, Any]] = None) -> None:
         self.llm_config = llm_config or {}
         
         # Configure HTTP client
@@ -65,7 +68,7 @@ class EnhancedScrapingService:
         urls: List[str],
         schema: Optional[Dict[str, Any]],
         prompt: str
-    ) -> List[Dict]:
+    ) -> List[Dict[str, Any]]:
         """Execute scraping for multiple URLs."""
         results = []
         
@@ -89,7 +92,7 @@ class EnhancedScrapingService:
         url: str,
         schema: Optional[Dict[str, Any]],
         prompt: str
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         """Scrape a single URL and extract content."""
         try:
             # Fetch the webpage
@@ -159,7 +162,7 @@ class EnhancedScrapingService:
         # Try og:title
         og_title = soup.find('meta', attrs={'property': 'og:title'})
         if og_title:
-            content = og_title.get('content', '')
+            content = str(og_title.get('content') or '')
             return content.strip() if content else "No title found"
         
         return "No title found"
@@ -192,26 +195,26 @@ class EnhancedScrapingService:
         
         return content[:10000]  # Limit content length
     
-    def _extract_metadata(self, soup: BeautifulSoup, response) -> Dict:
+    def _extract_metadata(self, soup: BeautifulSoup, response: Any) -> Dict[str, Any]:
         """Extract metadata from the page."""
-        metadata = {}
+        metadata: Dict[str, Any] = {}
         
         # Extract meta tags
         meta_tags = soup.find_all('meta')
         for tag in meta_tags:
-            name = tag.get('name') or tag.get('property')
-            content_attr = tag.get('content')
+            name = str(tag.get('name') or tag.get('property') or '')
+            content_attr = str(tag.get('content') or '')
             if name and content_attr:
                 metadata[name] = content_attr
         
         # Add response info
-        metadata['status_code'] = response.status_code
-        metadata['content_type'] = response.headers.get('content-type', '')
-        metadata['content_length'] = len(response.content)
+        metadata['status_code'] = str(response.status_code)
+        metadata['content_type'] = str(response.headers.get('content-type') or '')
+        metadata['content_length'] = str(len(response.content))
         
         # Extract links
-        links = [a.get('href') for a in soup.find_all('a', href=True) if a.get('href')]
-        metadata['link_count'] = len(links)
+        links = [str(a.get('href') or '') for a in soup.find_all('a', href=True) if a.get('href')]
+        metadata['link_count'] = str(len(links))
         
         # Extract external links safely
         external_links = []
@@ -228,7 +231,7 @@ class EnhancedScrapingService:
             except Exception:
                 pass
         
-        metadata['external_links'] = external_links
+        metadata['external_links'] = str(external_links)
         
         return metadata
     
@@ -236,9 +239,9 @@ class EnhancedScrapingService:
         self,
         content: str,
         prompt: str,
-        schema: Dict,
+        schema: Dict[str, Any],
         url: str
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         """Extract structured data based on schema using regex and simple parsing."""
         structured_data = {}
         
@@ -297,7 +300,7 @@ class EnhancedScrapingService:
         content: str,
         prompt: str,
         url: str
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         """Enhance extraction using OpenAI."""
         if not self.openai_client:
             return {}
@@ -335,7 +338,7 @@ class EnhancedScrapingService:
             
             try:
                 # Try to parse as JSON
-                extracted_data = json.loads(result_text)
+                extracted_data = json.loads(result_text or "{}")
                 return {"ai_extracted": extracted_data}
             except json.JSONDecodeError:
                 # If not valid JSON, return as text
@@ -420,8 +423,8 @@ class EnhancedScrapingService:
             logger.error(f"Enhanced scraping service validation failed: {e}")
             return False
     
-    async def __aenter__(self):
+    async def __aenter__(self) -> "EnhancedScrapingService":
         return self
     
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         await self.http_client.aclose()

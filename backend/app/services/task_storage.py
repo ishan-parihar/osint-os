@@ -15,15 +15,15 @@ logger = logging.getLogger(__name__)
 class TaskStorageService:
     """Redis-based task storage service with connection retry logic."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.redis_url = settings.REDIS_URL
-        self.redis_client = None
+        self.redis_client: Optional[redis.Redis] = None
         self.task_ttl = 3600  # Tasks expire after 1 hour
         self.max_retries = 3
         self.retry_delay = 2  # seconds
-        self.connection_pool = None
+        self.connection_pool: Optional[redis.ConnectionPool] = None
     
-    async def connect(self):
+    async def connect(self) -> bool:
         """Initialize Redis connection with retry logic."""
         for attempt in range(self.max_retries):
             try:
@@ -60,7 +60,7 @@ class TaskStorageService:
         
         return False
     
-    async def disconnect(self):
+    async def disconnect(self) -> None:
         """Close Redis connection."""
         try:
             if self.redis_client:
@@ -80,9 +80,8 @@ class TaskStorageService:
         try:
             # Test existing connection with a simple operation
             if self.redis_client:
-                redis_client = self.redis_client  # Type assertion
-                await redis_client.set("test_key", "test_value", ex=10)
-                await redis_client.delete("test_key")
+                await self.redis_client.set("test_key", "test_value", ex=10)
+                await self.redis_client.delete("test_key")
                 return True
         except Exception as e:
             logger.warning(f"Redis connection check failed: {e}, attempting to reconnect...")
@@ -98,7 +97,7 @@ class TaskStorageService:
         task_id: str,
         urls: List[str],
         prompt: str,
-        schema: Optional[Dict] = None
+        schema: Optional[Dict[str, Any]] = None
     ) -> bool:
         """Create a new task in Redis."""
         if not await self.ensure_connection() or not self.redis_client:
@@ -137,7 +136,7 @@ class TaskStorageService:
         self,
         task_id: str,
         status: str,
-        results: Optional[List[Dict]] = None,
+        results: Optional[List[Dict[str, Any]]] = None,
         error: Optional[str] = None
     ) -> bool:
         """Update task status in Redis."""
@@ -176,7 +175,7 @@ class TaskStorageService:
             logger.error(f"Failed to update task {task_id}: {e}")
             return False
     
-    async def get_task(self, task_id: str) -> Optional[Dict]:
+    async def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
         """Get task data from Redis."""
         if not await self.ensure_connection() or not self.redis_client:
             logger.warning("Redis not available for task retrieval")
@@ -188,7 +187,9 @@ class TaskStorageService:
             data = await redis_client.get(key)
             
             if data:
-                return json.loads(data)
+                loaded_data = json.loads(data)
+                if isinstance(loaded_data, dict):
+                    return loaded_data
             return None
             
         except Exception as e:
@@ -203,15 +204,15 @@ class TaskStorageService:
             
         try:
             key = self._get_task_key(task_id)
-            redis_client = self.redis_client  # Type assertion
+            redis_client = self.redis_client
             result = await redis_client.delete(key)
-            return result > 0
+            return bool(result) and result > 0
             
         except Exception as e:
             logger.error(f"Failed to delete task {task_id}: {e}")
             return False
     
-    async def list_tasks(self, limit: int = 50) -> List[Dict]:
+    async def list_tasks(self, limit: int = 50) -> List[Dict[str, Any]]:
         """List all tasks (for debugging/admin)."""
         if not await self.ensure_connection() or not self.redis_client:
             logger.warning("Redis not available for task listing")

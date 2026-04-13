@@ -8,7 +8,7 @@ backend services.
 
 import asyncio
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, cast
 from datetime import datetime
 from enum import Enum
 
@@ -50,15 +50,14 @@ class TaskType(Enum):
     """Types of tasks that can be coordinated through the bridge"""
     SCRAPING = "scraping"
     SEARCH = "search"
-    CRAWLING = "crawling"
-    DATA_EXTRACTION = "data_extraction"
-    VALIDATION = "validation"
+    ANALYSIS = "analysis"
+    INTELLIGENCE = "intelligence"
 
 
 class TaskStatus(Enum):
-    """Status of backend tasks"""
+    """Status of tasks in the bridge system"""
     PENDING = "pending"
-    IN_PROGRESS = "in_progress"
+    RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -66,24 +65,27 @@ class TaskStatus(Enum):
 
 class AIBackendBridge:
     """
-    Bridge class that synchronizes AI agent state with backend scraping services.
+    Bridge between AI agents and backend scraping services.
+    
+    This class provides a unified interface for AI agents to interact with
+    backend scraping services, manage tasks, and synchronize investigation state.
     """
     
-    def __init__(self, base_url: str = "http://localhost:8000"):
+    def __init__(self, base_url: str = "http://localhost:8000") -> None:
         self.client = BackendScrapingClient(base_url)
         self.logger = logging.getLogger(f"{__name__}.AIBackendBridge")
         
-    async def __aenter__(self):
+    async def __aenter__(self) -> "AIBackendBridge":
         await self.client.__aenter__()
         return self
     
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         await self.client.__aexit__(exc_type, exc_val, exc_tb)
     
     async def sync_investigation_state(
         self, 
         investigation_id: str, 
-        state: InvestigationState
+        state: Dict[str, Any]  # Using Dict instead of dynamic InvestigationState
     ) -> Dict[str, Any]:
         """
         Synchronize investigation state with backend services.
@@ -98,17 +100,24 @@ class AIBackendBridge:
         url = f"{self.client.base_url}/api/investigation/{investigation_id}/state"
         
         # Prepare state data for sync
+        current_phase = state.get("current_phase")
+        overall_status = state.get("overall_status")
+        
+        # Handle enum values safely
+        current_phase_value = current_phase.value if current_phase and hasattr(current_phase, 'value') else str(current_phase or "")
+        overall_status_value = overall_status.value if overall_status and hasattr(overall_status, 'value') else str(overall_status or "")
+        
         sync_data = {
             "investigation_id": investigation_id,
-            "current_phase": state["current_phase"].value,
-            "overall_status": state["overall_status"].value,
-            "progress_percentage": state["progress_percentage"],
-            "sources_used": state["sources_used"],
-            "agents_participated": state["agents_participated"],
-            "confidence_level": state["confidence_level"],
-            "errors_count": len(state["errors"]),
-            "warnings_count": len(state["warnings"]),
-            "total_execution_time": state["total_execution_time"],
+            "current_phase": current_phase_value,
+            "overall_status": overall_status_value,
+            "progress_percentage": state.get("progress_percentage", 0),
+            "sources_used": state.get("sources_used", []),
+            "agents_participated": state.get("agents_participated", []),
+            "confidence_level": state.get("confidence_level", 0.0),
+            "errors_count": len(state.get("errors", [])),
+            "warnings_count": len(state.get("warnings", [])),
+            "total_execution_time": state.get("total_execution_time", 0.0),
             "timestamp": datetime.utcnow().isoformat()
         }
         
@@ -116,22 +125,23 @@ class AIBackendBridge:
             async with self.client.session.post(url, json=sync_data) as response:
                 if response.status == 200:
                     result = await response.json()
-                    self.logger.info(f"Investigation state synced for {investigation_id}")
-                    return result
+                    # Cast result to expected type
+                    return cast(Dict[str, Any], result)
                 else:
                     error_text = await response.text()
                     self.logger.error(f"State sync failed: {response.status} - {error_text}")
                     return {"error": f"HTTP {response.status}: {error_text}", "success": False}
         except Exception as e:
-            self.logger.error(f"State sync error: {str(e)}")
-            return {"error": str(e), "success": False}
+            error_msg = str(e)  # Explicitly convert to string
+            self.logger.error(f"State sync error: {error_msg}")
+            return {"error": error_msg, "success": False}
     
     async def submit_scraping_task(
         self, 
         investigation_id: str, 
         urls: List[str], 
         prompt: str,
-        schema: Optional[Dict] = None
+        schema: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Submit a scraping task to backend services and track it.
@@ -147,6 +157,10 @@ class AIBackendBridge:
         """
         # First submit the scraping task
         submission_result = await self.client.execute_scraping(urls, prompt, schema)
+        
+        # Ensure we have a properly typed result
+        if not isinstance(submission_result, dict):
+            submission_result = {"success": False, "error": "Invalid response from scraping service"}
         
         if not submission_result.get("success"):
             return submission_result
@@ -178,7 +192,7 @@ class AIBackendBridge:
                     return {
                         "success": True,
                         "task_id": task_id,
-                        "tracking_result": tracking_result
+                        "tracking_result": cast(Dict[str, Any], tracking_result)
                     }
                 else:
                     error_text = await response.text()
@@ -190,78 +204,20 @@ class AIBackendBridge:
                         "warning": f"Task created but tracking registration failed: {error_text}"
                     }
         except Exception as e:
-            self.logger.error(f"Task tracking error: {str(e)}")
+            error_msg = str(e)  # Explicitly convert to string
+            self.logger.error(f"Task tracking error: {error_msg}")
             # Still return the original task ID since backend task was created
             return {
                 "success": True,
                 "task_id": task_id,
-                "warning": f"Task created but tracking registration failed: {str(e)}"
+                "warning": f"Task created but tracking registration failed: {error_msg}"
             }
     
-    async def wait_for_task_completion(
-        self, 
-        task_id: str, 
-        max_retries: int = 20,
-        poll_interval: int = 3
-    ) -> Dict[str, Any]:
-        """
-        Wait for a backend task to complete.
-        
-        Args:
-            task_id: Backend task ID to wait for
-            max_retries: Maximum number of polling attempts
-            poll_interval: Seconds between polling attempts
-            
-        Returns:
-            Task completion result with data
-        """
-        retry_count = 0
-        
-        while retry_count < max_retries:
-            try:
-                status_result = await self.client.get_task_status(task_id)
-                
-                if status_result.get("status") == "completed":
-                    # Get results
-                    results = await self.client.get_task_results(task_id)
-                    return {
-                        "success": True,
-                        "task_id": task_id,
-                        "status": "completed",
-                        "results": results,
-                        "data": results
-                    }
-                elif status_result.get("status") in ["failed", "error"]:
-                    return {
-                        "success": False,
-                        "task_id": task_id,
-                        "status": status_result.get("status"),
-                        "error": status_result.get("error", "Task failed"),
-                        "data": None
-                    }
-                
-                # Wait before next check
-                await asyncio.sleep(poll_interval)
-                retry_count += 1
-                
-            except Exception as e:
-                self.logger.error(f"Error checking task status: {str(e)}")
-                retry_count += 1
-                await asyncio.sleep(poll_interval)
-        
-        return {
-            "success": False,
-            "task_id": task_id,
-            "status": "timeout",
-            "error": "Task timeout - still running after maximum wait time",
-            "data": None
-        }
-    
     async def submit_search_task(
-        self, 
-        investigation_id: str, 
-        query: str, 
-        max_results: int = 5
+        self,
+        investigation_id: str,
+        query: str,
+        max_results: int = 10
     ) -> Dict[str, Any]:
         """
         Submit a search task to backend services.
@@ -269,10 +225,10 @@ class AIBackendBridge:
         Args:
             investigation_id: Investigation ID this task belongs to
             query: Search query
-            max_results: Maximum number of results to return
+            max_results: Maximum number of results
             
         Returns:
-            Task submission result with task ID
+            Task submission result
         """
         url = f"{self.client.base_url}/api/tasks/search"
         payload = {
@@ -286,14 +242,15 @@ class AIBackendBridge:
             async with self.client.session.post(url, json=payload) as response:
                 if response.status == 200:
                     result = await response.json()
-                    return result
+                    return cast(Dict[str, Any], result)
                 else:
                     error_text = await response.text()
                     logger.error(f"Search task submission failed: {response.status} - {error_text}")
                     return {"error": f"HTTP {response.status}: {error_text}", "success": False}
         except Exception as e:
-            logger.error(f"Search task submission error: {str(e)}")
-            return {"error": str(e), "success": False}
+            error_msg = str(e)  # Explicitly convert to string
+            logger.error(f"Search task submission error: {error_msg}")
+            return {"error": error_msg, "success": False}
     
     async def get_task_results_with_cache(
         self, 
@@ -310,16 +267,21 @@ class AIBackendBridge:
         """
         # For now, just return the results from backend
         # In a real implementation, we would cache results
-        return await self.client.get_task_results(task_id)
+        result = await self.client.get_task_results(task_id)
+        # Ensure we return the expected type
+        if isinstance(result, dict):
+            return result
+        else:
+            return {"results": result, "task_id": task_id}
     
     async def update_task_status(
-        self, 
-        task_id: str, 
+        self,
+        task_id: str,
         status: TaskStatus,
         details: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Update the status of a backend task.
+        Update the status of a task in the backend system.
         
         Args:
             task_id: Backend task ID to update
@@ -340,14 +302,15 @@ class AIBackendBridge:
             async with self.client.session.post(url, json=payload) as response:
                 if response.status == 200:
                     result = await response.json()
-                    return result
+                    return cast(Dict[str, Any], result)
                 else:
                     error_text = await response.text()
                     logger.error(f"Task status update failed: {response.status} - {error_text}")
                     return {"error": f"HTTP {response.status}: {error_text}", "success": False}
         except Exception as e:
-            logger.error(f"Task status update error: {str(e)}")
-            return {"error": str(e), "success": False}
+            error_msg = str(e)  # Explicitly convert to string
+            logger.error(f"Task status update error: {error_msg}")
+            return {"error": error_msg, "success": False}
 
 
 # Global bridge instance
@@ -381,7 +344,7 @@ async def get_global_ai_bridge() -> AIBackendBridge:
     return _bridge_instance
 
 
-async def close_global_ai_bridge():
+async def close_global_ai_bridge() -> None:
     """
     Close the global AI backend bridge instance.
     """

@@ -34,7 +34,7 @@ class LLMIntegrationService:
     Unified LLM integration service supporting multiple providers.
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.provider = self._initialize_provider()
         self.logger = logging.getLogger(f"{__name__}.LLMIntegrationService")
         
@@ -261,7 +261,7 @@ class LLMIntegrationService:
                     "provider": self.provider.name,
                     "generated_at": datetime.utcnow().isoformat()
                 }
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
                 return {
                     "error": f"Search enhancement unavailable: {e}",
                     "service_unavailable": True
@@ -366,17 +366,21 @@ class LLMIntegrationService:
                 
                 # Handle different response formats
                 if "choices" in result and len(result["choices"]) > 0:
-                    return result["choices"][0]["message"]["content"]
+                    content = result["choices"][0]["message"]["content"]
+                    return str(content) if content is not None else ""
                 elif "data" in result:
                     # Some APIs return data in a different format
                     if isinstance(result["data"], list) and len(result["data"]) > 0:
-                        return result["data"][0].get("content", str(result["data"][0]))
+                        content = result["data"][0].get("content", str(result["data"][0]))
+                        return str(content) if content is not None else ""
                     else:
                         return str(result["data"])
                 elif "content" in result:
-                    return result["content"]
+                    content = result["content"]
+                    return str(content) if content is not None else ""
                 elif "response" in result:
-                    return result["response"]
+                    response = result["response"]
+                    return str(response) if response is not None else ""
                 else:
                     # Return the raw response as fallback
                     self.logger.warning(f"Unexpected API response format: {list(result.keys())}")
@@ -403,14 +407,21 @@ class LLMIntegrationService:
                         "api_error": True
                     })
                 await asyncio.sleep(2 ** attempt)  # Exponential backoff
+        
+        # Fallback if all retries fail
+        return json.dumps({
+            "error": "All LLM request attempts failed",
+            "fallback_response": "Analysis unavailable - all retries exhausted",
+            "all_retries_failed": True
+        })
     
     def _parse_structured_response(self, response: str) -> Dict[str, Any]:
         """Parse structured text response into dictionary format."""
         
-        insights = {}
+        insights: Dict[str, Any] = {}
         lines = response.strip().split('\n')
         current_section = None
-        section_content = []
+        section_content: List[str] = []
         
         for line in lines:
             line = line.strip()
@@ -493,7 +504,7 @@ class LLMIntegrationService:
             self.logger.error(f"LLM connection validation failed: {e}")
             return False
     
-    async def close(self):
+    async def close(self) -> None:
         """Close HTTP client."""
         await self.http_client.aclose()
 
@@ -510,7 +521,7 @@ async def get_llm_service() -> LLMIntegrationService:
         _llm_service = LLMIntegrationService()
     return _llm_service
 
-async def close_llm_service():
+async def close_llm_service() -> None:
     """Close the global LLM service."""
     global _llm_service
     if _llm_service:

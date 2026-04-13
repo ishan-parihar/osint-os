@@ -7,12 +7,15 @@ authentication events, and system access patterns.
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, Any, Optional, List, Union, Callable
+from typing import Dict, Any, Optional, List, Union, Callable, TypeVar, ParamSpec
 import json
 import logging
 import asyncio
 from pathlib import Path
 import uuid
+
+P = ParamSpec('P')
+T = TypeVar('T')
 
 from app.config import settings
 
@@ -169,6 +172,7 @@ class AuditLogger:
     
     def __init__(self, log_file_path: Optional[str] = None):
         self.log_file_path = log_file_path or "logs/audit.log"
+        self.db_persistence: Optional[Any] = None  # Will be initialized below
         self._ensure_log_directory()
         self._setup_audit_logger()
         
@@ -188,12 +192,12 @@ class AuditLogger:
         self._flush_interval = 60  # seconds
         self._last_flush = datetime.now(timezone.utc)
     
-    def _ensure_log_directory(self):
+    def _ensure_log_directory(self) -> None:
         """Ensure the log directory exists."""
         log_path = Path(self.log_file_path)
         log_path.parent.mkdir(parents=True, exist_ok=True)
     
-    def _setup_audit_logger(self):
+    def _setup_audit_logger(self) -> None:
         """Setup the dedicated audit logger."""
         self.audit_logger = logging.getLogger("scrapecraft.audit")
         self.audit_logger.setLevel(logging.INFO)
@@ -212,7 +216,7 @@ class AuditLogger:
         
         # JSON formatter for structured logging
         class JsonFormatter(logging.Formatter):
-            def format(self, record):
+            def format(self, record: logging.LogRecord) -> str:
                 try:
                     log_data = json.loads(record.getMessage())
                     return json.dumps(log_data, default=str)
@@ -277,7 +281,7 @@ class AuditLogger:
         # Fallback to in-memory storage
         return self._event_queue[-limit:] if limit else self._event_queue.copy()
 
-    async def log_event(self, event: AuditEvent):
+    async def log_event(self, event: AuditEvent) -> None:
         """
         Log an audit event.
         
@@ -303,14 +307,14 @@ class AuditLogger:
             # Never let audit logging failures crash the application
             logger.error(f"Failed to log audit event: {e}")
     
-    async def _flush_event(self, event: AuditEvent):
+    async def _flush_event(self, event: AuditEvent) -> None:
         """Flush a single event to the log."""
         try:
             self.audit_logger.info(event.to_json())
         except Exception as e:
             logger.error(f"Failed to flush audit event: {e}")
     
-    async def _flush_queue(self):
+    async def _flush_queue(self) -> None:
         """Flush all queued events to the log."""
         if not self._event_queue:
             return
@@ -325,7 +329,7 @@ class AuditLogger:
         except Exception as e:
             logger.error(f"Failed to flush audit queue: {e}")
     
-    async def flush(self):
+    async def flush(self) -> None:
         """Manually flush the audit queue."""
         await self._flush_queue()
     
@@ -340,7 +344,7 @@ class AuditLogger:
         user_agent: Optional[str] = None,
         error_message: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None
-    ):
+    ) -> None:
         """Log an authentication event."""
         event = AuditEvent(
             event_type=event_type,
@@ -366,7 +370,7 @@ class AuditLogger:
         success: bool = True,
         ip_address: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None
-    ):
+    ) -> None:
         """Log a user management event."""
         event = AuditEvent(
             event_type=event_type,
@@ -393,7 +397,7 @@ class AuditLogger:
         success: bool = True,
         ip_address: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None
-    ):
+    ) -> None:
         """Log an investigation event."""
         event = AuditEvent(
             event_type=event_type,
@@ -418,7 +422,7 @@ class AuditLogger:
         user_agent: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
         error_message: Optional[str] = None
-    ):
+    ) -> None:
         """Log a security event."""
         event = AuditEvent(
             event_type=event_type,
@@ -439,7 +443,7 @@ class AuditLogger:
         user_role: Optional[str] = None,
         success: bool = True,
         details: Optional[Dict[str, Any]] = None
-    ):
+    ) -> None:
         """Log a system event."""
         event = AuditEvent(
             event_type=event_type,
@@ -521,10 +525,10 @@ audit_logger = AuditLogger()
 def audit_action(
     event_type: AuditEventType,
     resource_type: Optional[str] = None,
-    get_resource_id: Optional[Callable] = None,
-    get_details: Optional[Callable] = None,
+    get_resource_id: Optional[Callable[..., Any]] = None,
+    get_details: Optional[Callable[..., Any]] = None,
     severity: AuditSeverity = AuditSeverity.MEDIUM
-):
+) -> Any:
     """
     Decorator for automatically auditing function calls.
     
@@ -535,8 +539,8 @@ def audit_action(
         get_details: Function to extract additional details from function arguments
         severity: Severity level of the event
     """
-    def decorator(func):
-        async def wrapper(*args, **kwargs):
+    def decorator(func: Any) -> Any:
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Extract user information from kwargs (FastAPI dependency injection)
             current_user = kwargs.get('current_user')
             user_role = kwargs.get('user_role')

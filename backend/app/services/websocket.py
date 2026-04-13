@@ -1,322 +1,376 @@
-from fastapi import WebSocket
-from typing import Dict, List, Any, Optional
+"""
+Enhanced WebSocket service with proper authentication and security for OSINT-OS.
+"""
+
+from fastapi import WebSocket, HTTPException, status
+from typing import Dict, List, Any, Optional, cast
 import json
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-class ConnectionManager:
-    """Manages WebSocket connections for real-time communication."""
-    
-    def __init__(self):
+
+class SecureConnectionManager:
+    """Manages secure WebSocket connections with authentication."""
+
+    db_persistence: Optional[Any]
+    active_connections: Dict[str, List[WebSocket]]
+    pipeline_states: Dict[str, Dict[str, Any]]
+    connection_metadata: Dict[str, Dict[str, Any]]
+    is_healthy: bool
+    last_health_check: datetime
+    authenticated_connections: Dict[str, Dict[str, Any]]
+
+    def __init__(self) -> None:
         # Initialize database persistence service
         try:
             from .database import DatabasePersistenceService
+
             self.db_persistence = DatabasePersistenceService()
             self.db_persistence.initialize_database()
             logger.info("WebSocket database persistence service initialized")
         except Exception as e:
             logger.error(f"Failed to initialize WebSocket database persistence: {e}")
             self.db_persistence = None
-        
-        # Fallback to in-memory storage if database fails
-        # Store active connections by pipeline_id
+
+        # Connection management
         self.active_connections: Dict[str, List[WebSocket]] = {}
-        # Store pipeline states
-        self.pipeline_states: Dict[str, Dict] = {}
-        # Store connection metadata using connection IDs as strings
-        self.connection_metadata: Dict[str, Dict] = {}
-        # Health status
+        self.pipeline_states: Dict[str, Dict[str, Any]] = {}
+        self.connection_metadata: Dict[str, Dict[str, Any]] = {}
+        self.authenticated_connections: Dict[str, Dict[str, Any]] = {}
+
+        # Health tracking
         self.is_healthy = True
-        self.last_health_check = datetime.utcnow()
-    
-    async def _store_websocket_connection(self, connection_id: str, pipeline_id: str, metadata: Dict[str, Any]) -> bool:
-        """Store WebSocket connection data using database persistence with fallback."""
-        if self.db_persistence:
-            try:
-                success = await self.db_persistence.store_websocket_connection(connection_id, pipeline_id, metadata)
-                if success:
-                    return True
-            except Exception as e:
-                logger.error(f"WebSocket database persistence failed, using fallback: {e}")
-        
-        # Fallback to in-memory storage
-        self.connection_metadata[connection_id] = metadata
-        return True
-    
-    async def _get_websocket_connections(self, pipeline_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Get WebSocket connections using database persistence with fallback."""
-        if self.db_persistence:
-            try:
-                connections = await self.db_persistence.get_websocket_connections(pipeline_id)
-                if connections:
-                    return connections
-            except Exception as e:
-                logger.error(f"WebSocket database retrieval failed, using fallback: {e}")
-        
-        # Fallback to in-memory storage
-        if pipeline_id:
-            return [
-                {"connection_id": conn_id, "metadata": metadata}
-                for conn_id, metadata in self.connection_metadata.items()
-                if metadata.get("pipeline_id") == pipeline_id
-            ]
-        return [
-            {"connection_id": conn_id, "metadata": metadata}
-            for conn_id, metadata in self.connection_metadata.items()
+        self.last_health_check = datetime.now()
+
+        # Rate limiting
+        self.connection_attempts: Dict[str, List[datetime]] = {}
+        self.max_connections_per_ip = 10
+        self.connection_timeout = 300  # 5 minutes
+
+        logger.info("Secure WebSocket connection manager initialized")
+
+    def _get_client_ip(self, websocket: WebSocket) -> str:
+        """Extract client IP from WebSocket connection."""
+        client_host = websocket.client.host if websocket.client else "unknown"
+        forwarded_for = websocket.headers.get("x-forwarded-for")
+        if forwarded_for:
+            client_host = forwarded_for.split(",")[0].strip()
+        return client_host
+
+    def _check_rate_limit(self, client_ip: str) -> bool:
+        """Check if client has exceeded connection rate limit."""
+        now = datetime.now()
+        if client_ip not in self.connection_attempts:
+            self.connection_attempts[client_ip] = []
+
+        # Remove old attempts (older than 1 hour)
+        self.connection_attempts[client_ip] = [
+            attempt
+            for attempt in self.connection_attempts[client_ip]
+            if now - attempt < timedelta(hours=1)
         ]
-    
-    async def _remove_websocket_connection(self, connection_id: str) -> bool:
-        """Remove WebSocket connection data using database persistence with fallback."""
-        if self.db_persistence:
-            try:
-                success = await self.db_persistence.remove_websocket_connection(connection_id)
-                if success:
-                    # Also remove from fallback memory
-                    if connection_id in self.connection_metadata:
-                        del self.connection_metadata[connection_id]
-                    return True
-            except Exception as e:
-                logger.error(f"WebSocket database deletion failed, using fallback: {e}")
-        
-        # Fallback to in-memory storage
-        if connection_id in self.connection_metadata:
-            del self.connection_metadata[connection_id]
+
+        # Check if under limit (max 30 connections per hour)
+        if len(self.connection_attempts[client_ip]) >= 30:
+            logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+            return False
+
+        self.connection_attempts[client_ip].append(now)
         return True
-    
-    async def health_check(self) -> Dict[str, Any]:
-        """Perform health check on WebSocket manager."""
+
+    async def _authenticate_websocket(
+        self, websocket: WebSocket
+    ) -> Optional[Dict[str, Any]]:
+        """Authenticate WebSocket connection using JWT token or API key."""
         try:
-            total_connections = sum(len(conns) for conns in self.active_connections.values())
-            active_pipelines = len(self.active_connections)
-            
-            # Test connection health by checking if any connections are stale
-            stale_connections = 0
-            for pipeline_id, connections in self.active_connections.items():
-                for conn in connections:
-                    connection_id = f"{pipeline_id}_{id(conn)}"
-                    metadata = self.connection_metadata.get(connection_id, {})
-                    last_ping = metadata.get("last_ping")
-                    if last_ping:
-                        time_diff = (datetime.utcnow() - last_ping).total_seconds()
-                        if time_diff > 300:  # 5 minutes
-                            stale_connections += 1
-            
-            health_status = {
-                "status": "healthy" if stale_connections == 0 else "degraded",
-                "total_connections": total_connections,
-                "active_pipelines": active_pipelines,
-                "stale_connections": stale_connections,
-                "last_health_check": self.last_health_check.isoformat()
-            }
-            
-            self.last_health_check = datetime.utcnow()
-            return health_status
-            
-        except Exception as e:
-            logger.error(f"WebSocket health check failed: {e}")
-            return {
-                "status": "unhealthy",
-                "error": str(e),
-                "last_health_check": self.last_health_check.isoformat()
-            }
-    
-    async def cleanup_stale_connections(self):
-        """Remove stale WebSocket connections."""
-        try:
-            current_time = datetime.utcnow()
-            connections_to_remove = []
-            
-            for pipeline_id, connections in list(self.active_connections.items()):
-                for connection in connections:
-                    connection_id = f"{pipeline_id}_{id(connection)}"
-                    metadata = self.connection_metadata.get(connection_id, {})
-                    last_ping = metadata.get("last_ping")
-                    if last_ping:
-                        time_diff = (current_time - last_ping).total_seconds()
-                        if time_diff > 300:  # 5 minutes
-                            connections_to_remove.append((pipeline_id, connection))
-            
-            # Remove stale connections
-            for pipeline_id, connection in connections_to_remove:
+            # Method 1: JWT Token in Authorization header
+            auth_header = websocket.headers.get("authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.split(" ")[1]
                 try:
-                    await connection.close(code=1000, reason="Stale connection cleanup")
-                    await self.disconnect(connection, pipeline_id)
-                    logger.info(f"Cleaned up stale connection for pipeline {pipeline_id}")
-                except Exception as e:
-                    logger.error(f"Error closing stale connection: {e}")
-                    # Force remove if close fails
-                    await self.disconnect(connection, pipeline_id)
-                    
+                    payload = jwt.decode(
+                        token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM]
+                    )
+                    user_id = payload.get("sub")
+                    if user_id:
+                        return {
+                            "user_id": user_id,
+                            "method": "jwt",
+                            "permissions": payload.get("permissions", []),
+                            "exp": payload.get("exp"),
+                        }
+                except JWTError as e:
+                    logger.warning(f"JWT authentication failed: {e}")
+
+            # Method 2: API Key in headers
+            api_key = websocket.headers.get("x-api-key")
+            if api_key:
+                # Validate API key (implement your validation logic)
+                if await self._validate_api_key(api_key):
+                    return {
+                        "user_id": f"api_key_{api_key[:8]}",
+                        "method": "api_key",
+                        "permissions": ["read", "write"],
+                        "exp": None,
+                    }
+
+            # Method 3: Query parameter (less secure, for development only)
+            if settings.ENVIRONMENT == "development":
+                token_param = websocket.query_params.get("token")
+                if token_param:
+                    try:
+                        payload = jwt.decode(
+                            token_param,
+                            settings.JWT_SECRET,
+                            algorithms=[settings.JWT_ALGORITHM],
+                        )
+                        user_id = payload.get("sub")
+                        if user_id:
+                            return {
+                                "user_id": user_id,
+                                "method": "query_param",
+                                "permissions": payload.get("permissions", []),
+                                "exp": payload.get("exp"),
+                            }
+                    except JWTError:
+                        pass
+
+            logger.warning(
+                "WebSocket authentication failed - no valid credentials provided"
+            )
+            return None
+
         except Exception as e:
-            logger.error(f"Error during stale connection cleanup: {e}")
-    
-    async def connect(self, websocket: WebSocket, pipeline_id: str):
-        """Accept and store a new WebSocket connection."""
-        await websocket.accept()
-        
-        if pipeline_id not in self.active_connections:
-            self.active_connections[pipeline_id] = []
-            self.pipeline_states[pipeline_id] = {
-                "urls": [],
-                "schema": {},
-                "generated_code": "",
-                "status": "connected"
-            }
-        
-        self.active_connections[pipeline_id].append(websocket)
-        
-        # Store connection metadata
-        connection_id = f"{pipeline_id}_{id(websocket)}"
-        metadata = {
-            "connected_at": datetime.utcnow(),
-            "last_ping": datetime.utcnow(),
-            "pipeline_id": pipeline_id,
-            "websocket_id": id(websocket)
-        }
-        await self._store_websocket_connection(connection_id, pipeline_id, metadata)
-        
-        # Send initial state
-        await self.send_personal_message({
-            "type": "connection",
-            "message": "Connected to pipeline",
-            "pipeline_id": pipeline_id,
-            "state": self.pipeline_states[pipeline_id]
-        }, websocket)
-    
-    async def disconnect(self, websocket: WebSocket, pipeline_id: str):
-        """Remove a WebSocket connection."""
-        if pipeline_id in self.active_connections:
+            logger.error(f"Error during WebSocket authentication: {e}")
+            return None
+
+    async def _validate_api_key(self, api_key: str) -> bool:
+        """Validate API key against database or external service."""
+        try:
+            # Implement your API key validation logic here
+            # For now, basic format validation
+            if len(api_key) >= 32 and api_key.startswith("osint_"):
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"API key validation error: {e}")
+            return False
+
+    async def connect(self, websocket: WebSocket, pipeline_id: str) -> bool:
+        """
+        Accept and authenticate a new WebSocket connection.
+        Returns True if connection is successful, False otherwise.
+        """
+        client_ip = self._get_client_ip(websocket)
+
+        # Rate limiting check
+        if not self._check_rate_limit(client_ip):
+            await websocket.close(code=429, reason="Rate limit exceeded")
+            return False
+
+        # Authentication
+        auth_info = await self._authenticate_websocket(websocket)
+        if not auth_info:
+            await websocket.close(code=4011, reason="Unauthorized")
+            return False
+
+        # Check token expiration
+        if auth_info.get("exp"):
             try:
-                self.active_connections[pipeline_id].remove(websocket)
-            except ValueError:
-                pass  # Connection already removed
-            
-            # Clean up connection metadata using persistence layer
-            connection_id = f"{pipeline_id}_{id(websocket)}"
-            await self._remove_websocket_connection(connection_id)
-            
-            # Clean up if no more connections
-            if not self.active_connections[pipeline_id]:
-                del self.active_connections[pipeline_id]
-                if pipeline_id in self.pipeline_states:
-                    del self.pipeline_states[pipeline_id]
-    
-    async def send_personal_message(self, message: Dict, websocket: WebSocket):
-        """Send a message to a specific WebSocket connection."""
-        await websocket.send_json({
-            **message,
-            "timestamp": datetime.utcnow().isoformat()
-        })
-    
-    async def broadcast(self, message: Dict, pipeline_id: str):
-        """Broadcast a message to all connections for a pipeline."""
+                exp_timestamp = auth_info["exp"]
+                if datetime.now().timestamp() > exp_timestamp:
+                    await websocket.close(code=4011, reason="Token expired")
+                    return False
+            except Exception as e:
+                logger.error(f"Token expiration check failed: {e}")
+                await websocket.close(code=4011, reason="Invalid token")
+                return False
+
+        # Accept connection
+        try:
+            await websocket.accept()
+
+            # Store connection with metadata
+            connection_id = f"{auth_info['user_id']}_{datetime.now().timestamp()}"
+
+            if pipeline_id not in self.active_connections:
+                self.active_connections[pipeline_id] = []
+                self.pipeline_states[pipeline_id] = {
+                    "urls": [],
+                    "schema": {},
+                    "generated_code": "",
+                    "status": "connected",
+                    "created_at": datetime.now().isoformat(),
+                }
+
+            # Add connection
+            self.active_connections[pipeline_id].append(websocket)
+
+            # Store authentication metadata
+            self.authenticated_connections[connection_id] = {
+                "websocket": websocket,
+                "auth_info": auth_info,
+                "pipeline_id": pipeline_id,
+                "connected_at": datetime.now(),
+                "client_ip": client_ip,
+                "last_activity": datetime.now(),
+            }
+
+            # Store connection metadata
+            self.connection_metadata[connection_id] = {
+                "user_id": auth_info["user_id"],
+                "auth_method": auth_info["method"],
+                "permissions": auth_info["permissions"],
+                "client_ip": client_ip,
+                "connected_at": datetime.now().isoformat(),
+                "pipeline_id": pipeline_id,
+            }
+
+            logger.info(
+                f"WebSocket authenticated and connected: {auth_info['user_id']} to {pipeline_id}"
+            )
+
+            # Send welcome message
+            await self.send_personal_message(
+                {
+                    "type": "connection_established",
+                    "connection_id": connection_id,
+                    "pipeline_id": pipeline_id,
+                    "timestamp": datetime.now().isoformat(),
+                    "permissions": auth_info["permissions"],
+                },
+                websocket,
+            )
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error accepting WebSocket connection: {e}")
+            try:
+                await websocket.close(code=4000, reason="Connection error")
+            except:
+                pass
+            return False
+
+    async def disconnect(self, websocket: WebSocket, pipeline_id: str) -> None:
+        """Remove a WebSocket connection and clean up authentication data."""
+        try:
+            # Find and remove from active connections
+            if pipeline_id in self.active_connections:
+                if websocket in self.active_connections[pipeline_id]:
+                    self.active_connections[pipeline_id].remove(websocket)
+
+                # Clean up empty pipeline states
+                if not self.active_connections[pipeline_id]:
+                    del self.active_connections[pipeline_id]
+                    if pipeline_id in self.pipeline_states:
+                        del self.pipeline_states[pipeline_id]
+
+            # Find and remove authentication data
+            connections_to_remove = []
+            for conn_id, conn_data in self.authenticated_connections.items():
+                if conn_data["websocket"] == websocket:
+                    connections_to_remove.append(conn_id)
+
+            for conn_id in connections_to_remove:
+                del self.authenticated_connections[conn_id]
+                if conn_id in self.connection_metadata:
+                    del self.connection_metadata[conn_id]
+
+            logger.info(f"WebSocket disconnected from pipeline: {pipeline_id}")
+
+        except Exception as e:
+            logger.error(f"Error during WebSocket disconnect: {e}")
+
+    async def check_permissions(
+        self, websocket: WebSocket, required_permission: str
+    ) -> bool:
+        """Check if WebSocket connection has required permission."""
+        try:
+            # Find connection authentication data
+            for conn_data in self.authenticated_connections.values():
+                if conn_data["websocket"] == websocket:
+                    permissions = conn_data["auth_info"].get("permissions", [])
+                    return required_permission in permissions or "admin" in permissions
+            return False
+        except Exception as e:
+            logger.error(f"Error checking WebSocket permissions: {e}")
+            return False
+
+    async def send_personal_message(
+        self, message: Dict[str, Any], websocket: WebSocket
+    ) -> None:
+        """Send a message to a specific authenticated WebSocket."""
+        try:
+            await websocket.send_text(json.dumps(message))
+        except Exception as e:
+            logger.error(f"Error sending personal message: {e}")
+            # Connection might be closed, schedule cleanup
+            asyncio.create_task(self._cleanup_connection(websocket))
+
+    async def _cleanup_connection(self, websocket: WebSocket) -> None:
+        """Clean up a closed or failed connection."""
+        try:
+            for pipeline_id, connections in self.active_connections.items():
+                if websocket in connections:
+                    await self.disconnect(websocket, pipeline_id)
+                    break
+        except Exception as e:
+            logger.error(f"Error during connection cleanup: {e}")
+
+    async def broadcast_to_pipeline(
+        self, message: Dict[str, Any], pipeline_id: str
+    ) -> None:
+        """Broadcast a message to all authenticated connections in a pipeline."""
         if pipeline_id in self.active_connections:
-            # Create tasks for all connections
-            tasks = []
+            disconnected = []
             for connection in self.active_connections[pipeline_id]:
-                tasks.append(connection.send_json({
-                    **message,
-                    "timestamp": datetime.utcnow().isoformat()
-                }))
-            
-            # Send to all connections concurrently
-            await asyncio.gather(*tasks, return_exceptions=True)
-    
-    async def process_message(self, pipeline_id: str, data: Dict) -> Dict:
-        """Process incoming WebSocket messages."""
-        message_type = data.get("type", "chat")
-        
-        if message_type == "chat":
-            # Process through the workflow manager
-            from app.services.workflow_manager import get_workflow_manager
-            
-            workflow_manager = get_workflow_manager(self)
-            result = await workflow_manager.process_message(
-                pipeline_id=pipeline_id,
-                message=data.get("message", ""),
-                user=data.get("user", "user")
+                try:
+                    await connection.send_text(json.dumps(message))
+                except Exception as e:
+                    logger.error(f"Error broadcasting to connection: {e}")
+                    disconnected.append(connection)
+
+            # Clean up disconnected connections
+            for connection in disconnected:
+                await self.disconnect(connection, pipeline_id)
+
+    async def get_connection_stats(self) -> Dict[str, Any]:
+        """Get statistics about authenticated connections."""
+        total_connections = sum(
+            len(conns) for conns in self.active_connections.values()
+        )
+        unique_users = len(
+            set(
+                conn_data["auth_info"]["user_id"]
+                for conn_data in self.authenticated_connections.values()
             )
-            
-            return {
-                "type": "response",
-                "response": result["response"],
-                "workflow_state": result["workflow_state"],
-                "requires_action": result["requires_action"]
-            }
-        
-        elif message_type == "state_request":
-            # Return current workflow state
-            from app.services.workflow_manager import get_workflow_manager
-            
-            workflow_manager = get_workflow_manager(self)
-            workflow = await workflow_manager.get_workflow(pipeline_id)
-            
-            if workflow:
-                return {
-                    "type": "workflow_state",
-                    "workflow": workflow.model_dump(mode='json')
-                }
-            else:
-                # Create initial workflow for new pipelines
-                workflow = await workflow_manager.create_workflow(pipeline_id, data.get("user", "user"))
-                return {
-                    "type": "workflow_state",
-                    "workflow": workflow.model_dump(mode='json')
-                }
-        
-        elif message_type == "approval":
-            # Handle approval response
-            from app.services.workflow_manager import get_workflow_manager
-            
-            approval_id = data.get("approval_id")
-            if not approval_id:
-                return {
-                    "type": "error",
-                    "message": "approval_id is required for approval messages"
-                }
-            
-            workflow_manager = get_workflow_manager(self)
-            workflow = await workflow_manager.approve_action(
-                pipeline_id=pipeline_id,
-                approval_id=approval_id,
-                approved=data.get("approved", False),
-                user=data.get("user", "user")
-            )
-            
-            return {
-                "type": "approval_processed",
-                "workflow": workflow.model_dump(mode='json')
-            }
-        
-        elif message_type == "ping":
-            # Health check - update last ping time
-            # Note: We don't have direct access to the websocket object here, 
-            # so we'll update on the next message or in a separate ping handler
-            return {"type": "pong"}
-        
-        else:
-            return {
-                "type": "error",
-                "message": f"Unknown message type: {message_type}"
-            }
-    
-    async def stream_execution_updates(
-        self,
-        pipeline_id: str,
-        url: str,
-        status: str,
-        data: Any = None,
-        error: Optional[str] = None
-    ):
-        """Stream execution updates to connected clients."""
-        await self.broadcast({
-            "type": "execution_update",
-            "url": url,
-            "status": status,
-            "data": data,
-            "error": error
-        }, pipeline_id)
+        )
+
+        auth_methods: Dict[str, int] = {}
+        for conn_data in self.authenticated_connections.values():
+            method = conn_data["auth_info"]["method"]
+            auth_methods[method] = auth_methods.get(method, 0) + 1
+
+        return {
+            "total_connections": total_connections,
+            "unique_users": unique_users,
+            "auth_methods": auth_methods,
+            "pipeline_count": len(self.active_connections),
+            "authenticated_connections": len(self.authenticated_connections),
+            "is_healthy": self.is_healthy,
+            "last_health_check": self.last_health_check.isoformat(),
+        }
+
+
+# Global secure connection manager instance
+secure_connection_manager = SecureConnectionManager()
+
+# For backward compatibility, create aliases
+connection_manager = secure_connection_manager
+ConnectionManager = SecureConnectionManager

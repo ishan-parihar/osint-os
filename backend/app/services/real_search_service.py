@@ -20,15 +20,15 @@ class RealSearchService:
     Service for performing actual web searches using various search engines.
     """
     
-    def __init__(self):
-        self.session = None
-        self.rate_limiters = {
+    def __init__(self) -> None:
+        self.session: Optional[aiohttp.ClientSession] = None
+        self.rate_limiters: Dict[str, Dict[str, float]] = {
             'google': {'last_request': 0, 'min_delay': 1.0},
             'bing': {'last_request': 0, 'min_delay': 1.0},
             'duckduckgo': {'last_request': 0, 'min_delay': 0.5}
         }
     
-    async def __aenter__(self):
+    async def __aenter__(self) -> "RealSearchService":
         """Async context manager entry."""
         self.session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=30),
@@ -36,12 +36,12 @@ class RealSearchService:
         )
         return self
     
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Async context manager exit."""
         if self.session:
             await self.session.close()
     
-    async def _rate_limit(self, engine: str):
+    async def _rate_limit(self, engine: str) -> None:
         """Apply rate limiting for search engines."""
         if engine in self.rate_limiters:
             limiter = self.rate_limiters[engine]
@@ -61,6 +61,10 @@ class RealSearchService:
         Returns:
             List of search results
         """
+        if not self.session:
+            logger.error("Session not initialized - use async context manager")
+            return []
+            
         if not settings.GOOGLE_SEARCH_API_KEY or not settings.GOOGLE_SEARCH_ENGINE_ID:
             logger.warning("Google Search API credentials not configured")
             return await self._fallback_search(query, max_results, "google")
@@ -70,19 +74,19 @@ class RealSearchService:
         try:
             url = "https://www.googleapis.com/customsearch/v1"
             params = {
-                'key': settings.GOOGLE_SEARCH_API_KEY,
-                'cx': settings.GOOGLE_SEARCH_ENGINE_ID,
+                'key': str(settings.GOOGLE_SEARCH_API_KEY),
+                'cx': str(settings.GOOGLE_SEARCH_ENGINE_ID),
                 'q': query,
-                'num': min(max_results, 10),  # Google API limit
+                'num': str(min(max_results, 10)),  # Google API limit
                 'fields': 'items(title,link,snippet,pagemap/metatags,formattedUrl,displayLink)'
             }
             
             async with self.session.get(url, params=params) as response:
                 if response.status == 200:
                     data = await response.json()
-                    results = []
+                    results: List[Dict[str, Any]] = []
                     
-                    for item in data.get('items', []):
+                    for item in data.get('items') or []:
                         result = {
                             'title': item.get('title', ''),
                             'url': item.get('link', ''),
@@ -123,6 +127,10 @@ class RealSearchService:
         Returns:
             List of search results
         """
+        if not self.session:
+            logger.error("Session not initialized - use async context manager")
+            return []
+            
         if not settings.BING_SEARCH_API_KEY:
             logger.warning("Bing Search API key not configured")
             return await self._fallback_search(query, max_results, "bing")
@@ -133,8 +141,8 @@ class RealSearchService:
             url = "https://api.bing.microsoft.com/v7.0/search"
             params = {
                 'q': query,
-                'count': min(max_results, 50),  # Bing API limit
-                'offset': 0,
+                'count': str(min(max_results, 50)),  # Bing API limit
+                'offset': '0',
                 'mkt': 'en-US',
                 'safesearch': 'Moderate'
             }
@@ -144,9 +152,9 @@ class RealSearchService:
             async with self.session.get(url, params=params, headers=headers) as response:
                 if response.status == 200:
                     data = await response.json()
-                    results = []
+                    results: List[Dict[str, Any]] = []
                     
-                    for item in data.get('webPages', {}).get('value', []):
+                    for item in (data.get('webPages') or {}).get('value') or []:
                         result = {
                             'title': item.get('name', ''),
                             'url': item.get('url', ''),
@@ -199,7 +207,7 @@ class RealSearchService:
             params = {
                 'q': query,
                 'kl': 'us-en',
-                'num': min(max_results, 30)
+                'num': str(min(max_results, 30))
             }
             
             async with self.session.get(url, params=params) as response:
@@ -219,7 +227,7 @@ class RealSearchService:
         try:
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(html, 'html.parser')
-            results = []
+            results: List[Dict[str, Any]] = []
             
             # Find result containers
             result_divs = soup.find_all('div', class_='result')
@@ -230,7 +238,7 @@ class RealSearchService:
                 
                 if title_tag:
                     # Handle DuckDuckGo redirect URLs
-                    href = title_tag.get('href', '')
+                    href = str(title_tag.get('href') or '')
                     if href.startswith('//duckduckgo.com/l/'):
                         # This is a redirect - extract the real URL
                         import urllib.parse
@@ -277,7 +285,7 @@ class RealSearchService:
             # Last resort - return empty but realistic structure
             return []
     
-    async def multi_search(self, query: str, engines: List[str] = None, max_results: int = 10) -> Dict[str, List[Dict[str, Any]]]:
+    async def multi_search(self, query: str, engines: Optional[List[str]] = None, max_results: int = 10) -> Dict[str, List[Dict[str, Any]]]:
         """
         Search across multiple engines concurrently.
         
@@ -306,7 +314,7 @@ class RealSearchService:
             elif engine == 'duckduckgo':
                 tasks.append(self.search_duckduckgo(query, max_results))
         
-        results = {}
+        results: Dict[str, List[Dict[str, Any]]] = {}
         if tasks:
             task_results = await asyncio.gather(*tasks, return_exceptions=True)
             
@@ -316,12 +324,14 @@ class RealSearchService:
                     logger.error(f"Search failed for {engine}: {result}")
                     results[engine] = []
                 else:
-                    results[engine] = result
+                    # Explicitly cast the result to the expected type
+                    from typing import cast
+                    results[engine] = cast(List[Dict[str, Any]], result)
         
         return results
 
 
-async def perform_search(query: str, engines: List[str] = None, max_results: int = 10) -> Dict[str, List[Dict[str, Any]]]:
+async def perform_search(query: str, engines: Optional[List[str]] = None, max_results: int = 10) -> Dict[str, List[Dict[str, Any]]]:
     """
     Convenience function to perform a search.
     

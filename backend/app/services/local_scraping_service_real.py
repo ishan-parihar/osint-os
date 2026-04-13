@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Union, cast
 import asyncio
 import logging
 import os
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class LocalScrapingServiceReal:
     """Service for interacting with local ScrapeGraphAI library with proper imports."""
     
-    def __init__(self, llm_config: Optional[Dict] = None):
+    def __init__(self, llm_config: Optional[Dict[str, Any]] = None) -> None:
         # Use environment variables to configure LLM
         self.llm_config = llm_config or {
             "model": os.getenv("LOCAL_LLM_MODEL", "gpt-3.5-turbo"),
@@ -30,10 +30,17 @@ class LocalScrapingServiceReal:
                 "base_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             }
         
+        # Initialize type annotations
+        self.SmartScraperGraph: Optional[Any] = None
+        self.SearchGraph: Optional[Any] = None
+        self.OpenAI: Optional[Any] = None
+        self.llm_instance: Optional[Union[Dict[str, Any], Any]] = None
+        self.scrapegraph_available: bool = False
+        
         # Initialize ScrapeGraphAI components
         self._initialize_scrapegraph()
     
-    def _initialize_scrapegraph(self):
+    def _initialize_scrapegraph(self) -> None:
         """Initialize ScrapeGraphAI components with error handling."""
         try:
             # Try to import the required components
@@ -54,7 +61,8 @@ class LocalScrapingServiceReal:
                 }
             else:
                 # OpenAI configuration
-                self.llm_instance = self.OpenAI(
+                OpenAIClass = cast(Any, self.OpenAI)
+                self.llm_instance = OpenAIClass(
                     model=self.llm_config["model"],
                     api_key=self.llm_config["api_key"],
                     temperature=self.llm_config.get("temperature", 0)
@@ -76,7 +84,7 @@ class LocalScrapingServiceReal:
         urls: List[str],
         schema: Optional[Dict[str, Any]],
         prompt: str
-    ) -> List[Dict]:
+    ) -> List[Dict[str, Any]]:
         """Execute scraping for multiple URLs using local ScrapeGraphAI."""
         results = []
         
@@ -112,7 +120,8 @@ class LocalScrapingServiceReal:
                                 logger.warning(f"Could not set output schema: {e}")
                         
                         # Create and run the graph
-                        smart_scraper_graph = self.SmartScraperGraph(
+                        SmartScraperGraphClass = cast(Any, self.SmartScraperGraph)
+                        smart_scraper_graph = SmartScraperGraphClass(
                             prompt=prompt,
                             source=url,
                             config=graph_config
@@ -159,7 +168,8 @@ class LocalScrapingServiceReal:
                             "error": str(result)
                         })
                     else:
-                        results.append(result)
+                        # result is already a Dict[str, Any] here
+                        results.append(result)  # type: ignore[arg-type]
                 
         except Exception as e:
             logger.error(f"Pipeline execution failed: {e}")
@@ -173,7 +183,7 @@ class LocalScrapingServiceReal:
         
         return results
     
-    async def _scrape_single_url(self, url: str, prompt: str, schema: Optional[Dict[str, Any]]) -> Dict:
+    async def _scrape_single_url(self, url: str, prompt: str, schema: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """Scrape a single URL using SmartScraperGraph."""
         try:
             # Build graph config
@@ -191,7 +201,8 @@ class LocalScrapingServiceReal:
                     logger.warning(f"Could not set output schema: {e}")
             
             # Create and run the graph
-            smart_scraper_graph = self.SmartScraperGraph(
+            SmartScraperGraphClass = cast(Any, self.SmartScraperGraph)
+            smart_scraper_graph = SmartScraperGraphClass(
                 prompt=prompt,
                 source=url,
                 config=graph_config
@@ -233,7 +244,8 @@ class LocalScrapingServiceReal:
             }
             
             # Create search graph
-            search_graph = self.SearchGraph(
+            SearchGraphClass = cast(Any, self.SearchGraph)
+            search_graph = SearchGraphClass(
                 prompt=f"Find the top {max_results} most relevant websites for: {query}",
                 config=graph_config
             )
@@ -325,7 +337,8 @@ class LocalScrapingServiceReal:
             }
             
             # Test with a simple example
-            smart_scraper_graph = self.SmartScraperGraph(
+            SmartScraperGraphClass = cast(Any, self.SmartScraperGraph)
+            smart_scraper_graph = SmartScraperGraphClass(
                 prompt="Extract the title of the page",
                 source="https://example.com",
                 config=graph_config

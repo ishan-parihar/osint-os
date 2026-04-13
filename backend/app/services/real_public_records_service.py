@@ -21,8 +21,8 @@ class RealPublicRecordsService:
     Service for performing actual public records data collection.
     """
     
-    def __init__(self):
-        self.session = None
+    def __init__(self) -> None:
+        self.session: Optional[aiohttp.ClientSession] = None
         self.rate_limiters = {
             'court_records': {'last_request': 0, 'min_delay': 3.0},
             'property_records': {'last_request': 0, 'min_delay': 2.0},
@@ -31,7 +31,7 @@ class RealPublicRecordsService:
             'professional_licenses': {'last_request': 0, 'min_delay': 2.0}
         }
     
-    async def __aenter__(self):
+    async def __aenter__(self) -> "RealPublicRecordsService":
         """Async context manager entry."""
         self.session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=30),
@@ -39,12 +39,12 @@ class RealPublicRecordsService:
         )
         return self
     
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Async context manager exit."""
         if self.session:
             await self.session.close()
     
-    async def _rate_limit(self, record_type: str):
+    async def _rate_limit(self, record_type: str) -> None:
         """Apply rate limiting for public records sources."""
         if record_type in self.rate_limiters:
             limiter = self.rate_limiters[record_type]
@@ -116,6 +116,9 @@ class RealPublicRecordsService:
                 'page_size': 10
             }
             
+            if not self.session:
+                return []
+            
             async with self.session.get(url, params=params) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -150,7 +153,7 @@ class RealPublicRecordsService:
         try:
             # This is a placeholder for state-specific implementations
             # Each state has different systems and accessibility
-            results = []
+            results: List[Dict[str, Any]] = []
             
             # Example: Search for publicly available case information
             search_query = f"{name} {jurisdiction} court records case"
@@ -291,6 +294,9 @@ class RealPublicRecordsService:
     async def _extract_property_data(self, url: str) -> Dict[str, Any]:
         """Extract property data from assessor website."""
         try:
+            if not self.session:
+                return {}
+            
             async with self.session.get(url) as response:
                 if response.status == 200:
                     html = await response.text()
@@ -381,6 +387,9 @@ class RealPublicRecordsService:
                 'jurisdiction_code': f'us_{jurisdiction.lower()}',
                 'per_page': 5
             }
+            
+            if not self.session:
+                return []
             
             async with self.session.get(url, params=params) as response:
                 if response.status == 200:
@@ -575,7 +584,7 @@ class RealPublicRecordsService:
             return []
 
 
-async def perform_public_records_search(record_type: str, **kwargs) -> Dict[str, Any]:
+async def perform_public_records_search(record_type: str, **kwargs: Any) -> Dict[str, Any]:
     """
     Convenience function to perform public records searches.
     
@@ -623,7 +632,12 @@ async def perform_public_records_search(record_type: str, **kwargs) -> Dict[str,
             jurisdiction = kwargs.get("jurisdiction")
             if not all([name, profession, jurisdiction]):
                 return {"error": "Name, profession, and jurisdiction required for license search"}
-            return await records_service.search_professional_licenses(name, profession, jurisdiction)
+            # Type assertion: we've already checked they're not None above
+            return await records_service.search_professional_licenses(
+                name,  # type: ignore[arg-type]
+                profession,  # type: ignore[arg-type]
+                jurisdiction  # type: ignore[arg-type]
+            )
         
         else:
             return {"error": f"Record type '{record_type}' not supported"}

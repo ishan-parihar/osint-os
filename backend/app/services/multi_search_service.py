@@ -7,7 +7,7 @@ import asyncio
 import aiohttp
 import json
 import logging
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional, Union, cast, TypedDict
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 import re
@@ -28,11 +28,21 @@ class SearchResult:
     description: str
     source: str
     relevance_score: float = 0.0
-    timestamp: datetime = None
+    timestamp: Optional[datetime] = None
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.timestamp is None:
             self.timestamp = datetime.utcnow()
+
+
+class EngineConfig(TypedDict):
+    """Type for engine configuration."""
+    url: str
+    enabled: bool
+    rate_limit: float
+    last_request: Optional[datetime]
+    api_key: Optional[str]
+    search_engine_id: Optional[str]
 
 
 @dataclass
@@ -43,9 +53,9 @@ class SearchResponse:
     total_results: int
     search_time: float
     engine: str
-    metadata: Dict[str, Any] = None
+    metadata: Optional[Dict[str, Any]] = None
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.metadata is None:
             self.metadata = {}
 
@@ -55,42 +65,51 @@ class MultiSearchEngine:
     Advanced multi-engine search service that combines results from multiple sources.
     """
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         self.config = config or {}
         self.logger = logging.getLogger(__name__)
-        self.session = None
+        self.session: Optional[aiohttp.ClientSession] = None
         
         # Search engine configurations
-        self.engines = {
+        self.engines: Dict[str, EngineConfig] = {
             'duckduckgo': {
                 'url': 'https://duckduckgo.com/html/',
                 'enabled': True,
                 'rate_limit': 1.0,  # seconds between requests
-                'last_request': None
+                'last_request': None,
+                'api_key': None,
+                'search_engine_id': None
             },
             'brave': {
                 'url': 'https://search.brave.com/search',
                 'enabled': True,
                 'rate_limit': 1.0,
-                'last_request': None
+                'last_request': None,
+                'api_key': None,
+                'search_engine_id': None
             },
             'startpage': {
                 'url': 'https://www.startpage.com/do/search',
                 'enabled': True,
                 'rate_limit': 1.5,
-                'last_request': None
+                'last_request': None,
+                'api_key': None,
+                'search_engine_id': None
             },
             'qwant': {
                 'url': 'https://www.qwant.com/',
                 'enabled': True,
                 'rate_limit': 1.0,
-                'last_request': None
+                'last_request': None,
+                'api_key': None,
+                'search_engine_id': None
             }
         }
         
         # API-based engines (require API keys)
-        self.api_engines = {
+        self.api_engines: Dict[str, EngineConfig] = {
             'google': {
+                'url': 'https://www.googleapis.com/customsearch/v1',
                 'enabled': bool(self.config.get('GOOGLE_SEARCH_API_KEY')),
                 'api_key': self.config.get('GOOGLE_SEARCH_API_KEY'),
                 'search_engine_id': self.config.get('GOOGLE_SEARCH_ENGINE_ID'),
@@ -98,14 +117,16 @@ class MultiSearchEngine:
                 'last_request': None
             },
             'bing': {
+                'url': 'https://api.bing.microsoft.com/v7.0/search',
                 'enabled': bool(self.config.get('BING_SEARCH_API_KEY')),
                 'api_key': self.config.get('BING_SEARCH_API_KEY'),
+                'search_engine_id': None,
                 'rate_limit': 0.1,
                 'last_request': None
             }
         }
     
-    async def __aenter__(self):
+    async def __aenter__(self) -> "MultiSearchEngine":
         """Async context manager entry."""
         self.session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=30),
@@ -115,7 +136,7 @@ class MultiSearchEngine:
         )
         return self
     
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Async context manager exit."""
         if self.session:
             await self.session.close()
@@ -161,7 +182,7 @@ class MultiSearchEngine:
         engine_results = await asyncio.gather(*search_tasks, return_exceptions=True)
         
         # Process results
-        all_results = []
+        all_results: List[SearchResult] = []
         successful_engines = []
         failed_engines = []
         
@@ -173,9 +194,17 @@ class MultiSearchEngine:
                 failed_engines.append(engine_name)
                 continue
             
-            if result and result.results:
-                all_results.extend(result.results)
+            # At this point, result is not an Exception, so it should be a SearchResponse
+            if not result:
+                continue
+                
+            try:
+                # Type: ignore because we've filtered out exceptions above
+                all_results.extend(result.results)  # type: ignore
                 successful_engines.append(engine_name)
+            except AttributeError:
+                self.logger.error(f"Invalid result format from {engine_name}")
+                failed_engines.append(engine_name)
         
         # Deduplicate results if requested
         if deduplicate:
@@ -205,10 +234,12 @@ class MultiSearchEngine:
         engine_config = self.engines[engine]
         
         # Rate limiting
-        if engine_config['last_request']:
-            time_since_last = datetime.utcnow() - engine_config['last_request']
-            if time_since_last.total_seconds() < engine_config['rate_limit']:
-                await asyncio.sleep(engine_config['rate_limit'] - time_since_last.total_seconds())
+        last_request = engine_config['last_request']
+        rate_limit = float(engine_config['rate_limit'])
+        if last_request and isinstance(last_request, datetime):
+            time_since_last = datetime.utcnow() - last_request
+            if time_since_last.total_seconds() < rate_limit:
+                await asyncio.sleep(rate_limit - time_since_last.total_seconds())
         
         try:
             if engine == 'duckduckgo':
@@ -234,6 +265,9 @@ class MultiSearchEngine:
         params = {'q': query}
         url = f"https://duckduckgo.com/html/?{urlencode(params)}"
         
+        if not self.session:
+            raise RuntimeError("Session not initialized")
+        
         async with self.session.get(url) as response:
             html = await response.text()
             soup = BeautifulSoup(html, 'html.parser')
@@ -247,7 +281,7 @@ class MultiSearchEngine:
                 
                 if title_tag:
                     title = title_tag.get_text(strip=True)
-                    url = title_tag.get('href', '')
+                    url = str(title_tag.get('href', '') or '')
                     description = snippet_tag.get_text(strip=True) if snippet_tag else ''
                     
                     results.append(SearchResult(
@@ -271,6 +305,9 @@ class MultiSearchEngine:
         params = {'q': query}
         url = f"https://search.brave.com/search?{urlencode(params)}"
         
+        if not self.session:
+            raise RuntimeError("Session not initialized")
+        
         async with self.session.get(url) as response:
             html = await response.text()
             soup = BeautifulSoup(html, 'html.parser')
@@ -284,7 +321,7 @@ class MultiSearchEngine:
                 
                 if title_tag:
                     title = title_tag.get_text(strip=True)
-                    url = title_tag.get('href', '')
+                    url = str(title_tag.get('href', '') or '')
                     description = snippet_tag.get_text(strip=True) if snippet_tag else ''
                     
                     results.append(SearchResult(
@@ -308,6 +345,9 @@ class MultiSearchEngine:
         params = {'query': query}
         url = f"https://www.startpage.com/do/search?{urlencode(params)}"
         
+        if not self.session:
+            raise RuntimeError("Session not initialized")
+        
         async with self.session.get(url) as response:
             html = await response.text()
             soup = BeautifulSoup(html, 'html.parser')
@@ -322,7 +362,7 @@ class MultiSearchEngine:
                 
                 if link_tag:
                     title = link_tag.get_text(strip=True)
-                    url = link_tag.get('href', '')
+                    url = str(link_tag.get('href', '') or '')
                     description = snippet_tag.get_text(strip=True) if snippet_tag else ''
                     
                     results.append(SearchResult(
@@ -346,6 +386,9 @@ class MultiSearchEngine:
         params = {'q': query, 't': 'web'}
         url = f"https://www.qwant.com/?{urlencode(params)}"
         
+        if not self.session:
+            raise RuntimeError("Session not initialized")
+        
         async with self.session.get(url) as response:
             html = await response.text()
             soup = BeautifulSoup(html, 'html.parser')
@@ -359,7 +402,7 @@ class MultiSearchEngine:
                 
                 if title_tag:
                     title = title_tag.get_text(strip=True)
-                    url = title_tag.get('href', '')
+                    url = str(title_tag.get('href', '') or '')
                     description = snippet_tag.get_text(strip=True) if snippet_tag else ''
                     
                     results.append(SearchResult(
@@ -383,10 +426,12 @@ class MultiSearchEngine:
         engine_config = self.api_engines[engine]
         
         # Rate limiting
-        if engine_config['last_request']:
-            time_since_last = datetime.utcnow() - engine_config['last_request']
-            if time_since_last.total_seconds() < engine_config['rate_limit']:
-                await asyncio.sleep(engine_config['rate_limit'] - time_since_last.total_seconds())
+        last_request = engine_config['last_request']
+        rate_limit = float(engine_config['rate_limit'])
+        if last_request and isinstance(last_request, datetime):
+            time_since_last = datetime.utcnow() - last_request
+            if time_since_last.total_seconds() < rate_limit:
+                await asyncio.sleep(rate_limit - time_since_last.total_seconds())
         
         try:
             if engine == 'google':
@@ -419,6 +464,9 @@ class MultiSearchEngine:
         }
         
         url = f"https://www.googleapis.com/customsearch/v1?{urlencode(params)}"
+        
+        if not self.session:
+            raise RuntimeError("Session not initialized")
         
         async with self.session.get(url) as response:
             data = await response.json()
@@ -458,11 +506,14 @@ class MultiSearchEngine:
             'mkt': 'en-US'
         }
         
-        headers = {
-            'Ocp-Apim-Subscription-Key': api_key
+        headers: Dict[str, str] = {
+            'Ocp-Apim-Subscription-Key': str(api_key)
         }
         
         url = f"https://api.bing.microsoft.com/v7.0/search?{urlencode(params)}"
+        
+        if not self.session:
+            raise RuntimeError("Session not initialized")
         
         async with self.session.get(url, headers=headers) as response:
             data = await response.json()
@@ -545,7 +596,7 @@ class MultiSearchEngine:
             'description': result.description,
             'source': result.source,
             'relevance_score': result.relevance_score,
-            'timestamp': result.timestamp.isoformat()
+            'timestamp': result.timestamp.isoformat() if result.timestamp else datetime.utcnow().isoformat()
         }
 
 

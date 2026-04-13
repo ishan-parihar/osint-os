@@ -13,7 +13,7 @@ This service provides production-ready async LLM interactions with:
 import asyncio
 import logging
 import time
-from typing import Dict, List, Optional, Any, Union, Callable
+from typing import Dict, List, Optional, Any, Union, Callable, Type, AsyncIterator
 from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime, timedelta
@@ -67,7 +67,7 @@ class QueuedRequest:
     """A queued LLM request."""
     id: str
     messages: List[BaseMessage]
-    future: asyncio.Future
+    future: asyncio.Future[LLMResult]
     provider: Optional[str] = None
     priority: int = 0
     created_at: datetime = field(default_factory=datetime.utcnow)
@@ -85,12 +85,12 @@ class CircuitBreaker:
         self.last_failure_time: Optional[datetime] = None
         self.state = CircuitState.CLOSED
     
-    def call_success(self):
+    def call_success(self) -> None:
         """Record a successful call."""
         self.failure_count = 0
         self.state = CircuitState.CLOSED
     
-    def call_failure(self):
+    def call_failure(self) -> None:
         """Record a failed call."""
         self.failure_count += 1
         self.last_failure_time = datetime.utcnow()
@@ -122,7 +122,7 @@ class RateLimiter:
     
     def __init__(self, max_calls_per_minute: int):
         self.max_calls = max_calls_per_minute
-        self.calls = deque()
+        self.calls: deque[datetime] = deque()
         self._lock = asyncio.Lock()
     
     async def acquire(self) -> bool:
@@ -152,7 +152,7 @@ class AsyncLLMProvider:
     
     def __init__(self, config: ProviderConfig):
         self.config = config
-        self.llm_instance: Optional[BaseLanguageModel] = None
+        self.llm_instance: Optional[BaseLanguageModel[Any]] = None
         self.semaphore = asyncio.Semaphore(config.max_concurrent)
         self.circuit_breaker = CircuitBreaker()
         self.rate_limiter = RateLimiter(config.rate_limit_per_minute)
@@ -161,7 +161,7 @@ class AsyncLLMProvider:
         self._last_health_check: Optional[datetime] = None
         self._is_healthy = True
     
-    async def get_llm_instance(self) -> BaseLanguageModel:
+    async def get_llm_instance(self) -> BaseLanguageModel[Any]:
         """Get or create LLM instance with connection pooling."""
         if self.llm_instance is None:
             async with self._connection_lock:
@@ -257,15 +257,15 @@ class AsyncLLMProvider:
 class AsyncLLMService:
     """Main async LLM service with provider management and load balancing."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.providers: Dict[str, AsyncLLMProvider] = {}
-        self.request_queue: asyncio.Queue = asyncio.Queue()
-        self.worker_tasks: List[asyncio.Task] = []
-        self.metrics_collector_task: Optional[asyncio.Task] = None
+        self.request_queue: asyncio.Queue[QueuedRequest] = asyncio.Queue()
+        self.worker_tasks: List[asyncio.Task[None]] = []
+        self.metrics_collector_task: Optional[asyncio.Task[None]] = None
         self._shutdown = False
         self._initialize_providers()
     
-    def _initialize_providers(self):
+    def _initialize_providers(self) -> None:
         """Initialize LLM providers based on configuration."""
         # Default provider configurations
         provider_configs = [
@@ -321,7 +321,7 @@ class AsyncLLMService:
             except Exception as e:
                 logger.error(f"Failed to initialize provider {config.name}: {e}")
     
-    async def start(self):
+    async def start(self) -> None:
         """Start the async LLM service."""
         if self.worker_tasks:
             return  # Already started
@@ -337,7 +337,7 @@ class AsyncLLMService:
         
         logger.info(f"Async LLM service started with {num_workers} workers")
     
-    async def stop(self):
+    async def stop(self) -> None:
         """Stop the async LLM service."""
         self._shutdown = True
         
@@ -359,7 +359,7 @@ class AsyncLLMService:
         self.worker_tasks.clear()
         logger.info("Async LLM service stopped")
     
-    async def _worker(self, worker_name: str):
+    async def _worker(self, worker_name: str) -> None:
         """Worker task to process queued requests."""
         logger.info(f"Worker {worker_name} started")
         
@@ -381,7 +381,7 @@ class AsyncLLMService:
         
         logger.info(f"Worker {worker_name} stopped")
     
-    async def _process_request(self, request: QueuedRequest, worker_name: str):
+    async def _process_request(self, request: QueuedRequest, worker_name: str) -> None:
         """Process a single queued request."""
         start_time = time.time()
         
@@ -436,7 +436,7 @@ class AsyncLLMService:
         
         # Load balancing based on weights and current load
         best_provider = None
-        best_score = -1
+        best_score = -1.0
         
         for provider in available_providers:
             # Calculate score based on weight, success rate, and current load
@@ -484,7 +484,7 @@ class AsyncLLMService:
             LLM response
         """
         # Convert string messages to HumanMessage
-        processed_messages = []
+        processed_messages: List[BaseMessage] = []
         for msg in messages:
             if isinstance(msg, str):
                 processed_messages.append(HumanMessage(content=msg))
@@ -493,7 +493,7 @@ class AsyncLLMService:
         
         # Create request
         request_id = f"req_{int(time.time() * 1000)}_{id(messages)}"
-        future = asyncio.Future()
+        future: asyncio.Future[LLMResult] = asyncio.Future()
         
         request = QueuedRequest(
             id=request_id,
@@ -516,7 +516,7 @@ class AsyncLLMService:
                 future.cancel()
             raise LLMProviderError(f"Request {request_id} timed out")
     
-    async def _metrics_collector(self):
+    async def _metrics_collector(self) -> None:
         """Collect and report metrics periodically."""
         while not self._shutdown:
             try:
@@ -584,7 +584,7 @@ async def get_async_llm_service() -> AsyncLLMService:
     
     return _async_llm_service
 
-async def shutdown_async_llm_service():
+async def shutdown_async_llm_service() -> None:
     """Shutdown the global async LLM service."""
     global _async_llm_service
     
@@ -604,7 +604,7 @@ async def async_llm_invoke(
     return await service.invoke(messages, timeout, priority, provider)
 
 @asynccontextmanager
-async def async_llm_context():
+async def async_llm_context() -> AsyncIterator[AsyncLLMService]:
     """Context manager for async LLM service."""
     service = await get_async_llm_service()
     try:

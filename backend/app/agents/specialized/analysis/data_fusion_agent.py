@@ -531,7 +531,7 @@ class DataFusionAgent(LLMOSINTAgent):
                 hash_values.append(str(item[field]))
         
         item_string = "|".join(sorted(hash_values))
-        return hashlib.md5(item_string.encode()).hexdigest()
+        return hashlib.sha256(item_string.encode()).hexdigest()
     
     async def _normalize_data(self, deduplicated_data: Dict[str, List]) -> Dict[str, List]:
         """Normalize data formats across sources."""
@@ -628,9 +628,9 @@ class DataFusionAgent(LLMOSINTAgent):
         
         if identifiers:
             entity_string = "|".join(sorted(identifiers))
-            return hashlib.md5(entity_string.encode()).hexdigest()[:12]
+            return hashlib.sha256(entity_string.encode()).hexdigest()[:12]
         else:
-            return hashlib.md5(str(data).encode()).hexdigest()[:12]
+            return hashlib.sha256(str(data).encode()).hexdigest()[:12]
     
     def _find_matching_entities(self, data: Dict[str, Any], entity_index: Dict[str, Dict]) -> List[str]:
         """Find matching entities for data correlation."""

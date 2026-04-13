@@ -28,7 +28,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 import redis
 import bcrypt
-import jwt
+from jose import jwt, JWTError, ExpiredSignatureError
 from cryptography.fernet import Fernet
 import bleach
 import html
@@ -318,12 +318,12 @@ class TokenManager:
         """Verify and decode JWT token."""
         try:
             return jwt.decode(token, secret, algorithms=[algorithm])
-        except jwt.ExpiredSignatureError:
+        except ExpiredSignatureError:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token has expired"
             )
-        except jwt.InvalidTokenError:
+        except JWTError:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token"

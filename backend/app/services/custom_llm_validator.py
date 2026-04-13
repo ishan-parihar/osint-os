@@ -37,22 +37,22 @@ class ProviderHealthCheck(BaseModel):
 class CustomLLMValidator:
     """Comprehensive validator for custom LLM providers."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.session: Optional[aiohttp.ClientSession] = None
         self.health_cache: Dict[str, ProviderHealthCheck] = {}
         self.cache_ttl = timedelta(seconds=settings.CUSTOM_LLM_HEALTH_CHECK_INTERVAL)
     
-    async def __aenter__(self):
+    async def __aenter__(self) -> "CustomLLMValidator":
         """Async context manager entry."""
         await self._ensure_session()
         return self
     
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Async context manager exit."""
         if self.session:
             await self.session.close()
     
-    async def _ensure_session(self):
+    async def _ensure_session(self) -> None:
         """Ensure aiohttp session exists."""
         if not self.session or self.session.closed:
             timeout = aiohttp.ClientTimeout(total=settings.CUSTOM_LLM_TIMEOUT)
@@ -418,7 +418,7 @@ class CustomLLMValidator:
         Returns:
             Dictionary with validation results and recommendations
         """
-        results = {
+        results: Dict[str, Any] = {
             "valid": False,
             "errors": [],
             "warnings": [],

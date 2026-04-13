@@ -43,13 +43,13 @@ class MessageType(str, Enum):
 class StreamingResponse:
     """Helper for streaming responses."""
     
-    def __init__(self, websocket: WebSocket, message_id: str):
+    def __init__(self, websocket: WebSocket, message_id: str) -> None:
         self.websocket = websocket
         self.message_id = message_id
-        self.chunks = []
+        self.chunks: List[str] = []
         self.start_time = datetime.utcnow()
     
-    async def send_chunk(self, chunk: str):
+    async def send_chunk(self, chunk: str) -> None:
         """Send a chunk of the response."""
         self.chunks.append(chunk)
         await self.websocket.send_json({
@@ -60,7 +60,7 @@ class StreamingResponse:
             "timestamp": datetime.utcnow().isoformat()
         })
     
-    async def finish(self):
+    async def finish(self) -> None:
         """Finish streaming and send complete response."""
         complete_response = "".join(self.chunks)
         duration = (datetime.utcnow() - self.start_time).total_seconds()
@@ -79,27 +79,28 @@ class StreamingResponse:
 class EnhancedWebSocketManager:
     """Enhanced WebSocket manager with streaming and collaboration features."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         # Connection management
         self.connections: Dict[str, Dict[str, WebSocket]] = {}  # pipeline_id -> {user_id: websocket}
-        self.user_info: Dict[str, Dict] = {}  # user_id -> user info
+        self.user_info: Dict[str, Dict[str, Any]] = {}  # user_id -> user info
         
         # Pipeline states
-        self.pipeline_states: Dict[str, Dict] = {}
+        self.pipeline_states: Dict[str, Dict[str, Any]] = {}
         self.pipeline_locks: Dict[str, str] = {}  # pipeline_id -> user_id (who has edit lock)
         
-        # Streaming management
+# Streaming management
         self.active_streams: Dict[str, StreamingResponse] = {}
         
         # Auto-save drafts
-        self.draft_timers: Dict[str, asyncio.Task] = {}
+        self.draft_timers: Dict[str, asyncio.Task[None]] = {}
     
     async def connect(
         self,
         websocket: WebSocket,
         pipeline_id: str,
-        user_id: Optional[str] = None
-    ):
+        user_id: str,
+        user_info: Dict[str, Any]
+    ) -> None:
         """Accept and manage a WebSocket connection."""
         await websocket.accept()
         
@@ -154,7 +155,7 @@ class EnhancedWebSocketManager:
             }
         )
     
-    def disconnect(self, websocket: WebSocket, pipeline_id: str, user_id: str):
+    def disconnect(self, websocket: WebSocket, pipeline_id: str, user_id: str) -> None:
         """Remove a WebSocket connection."""
         if pipeline_id in self.connections:
             if user_id in self.connections[pipeline_id]:
@@ -183,7 +184,7 @@ class EnhancedWebSocketManager:
         if user_id in self.user_info:
             del self.user_info[user_id]
     
-    async def broadcast(self, pipeline_id: str, message: Dict):
+    async def broadcast(self, pipeline_id: str, message: Dict[str, Any]) -> None:
         """Broadcast message to all connections for a pipeline."""
         if pipeline_id not in self.connections:
             return
@@ -203,8 +204,8 @@ class EnhancedWebSocketManager:
         self,
         pipeline_id: str,
         sender_id: str,
-        message: Dict
-    ):
+        message: Dict[str, Any]
+    ) -> None:
         """Broadcast message to all connections except sender."""
         if pipeline_id not in self.connections:
             return
@@ -218,7 +219,7 @@ class EnhancedWebSocketManager:
         
         await asyncio.gather(*tasks, return_exceptions=True)
     
-    async def _send_safe(self, websocket: WebSocket, message: Dict):
+    async def _send_safe(self, websocket: WebSocket, message: Dict[str, Any]) -> None:
         """Safely send message to websocket."""
         try:
             await websocket.send_json(message)
@@ -228,8 +229,8 @@ class EnhancedWebSocketManager:
     async def stream_scraping_progress(
         self,
         pipeline_id: str,
-        progress: Dict
-    ):
+        progress: Dict[str, Any]
+    ) -> None:
         """Stream real-time scraping progress with preview."""
         message = {
             "type": MessageType.SCRAPING_PROGRESS,
@@ -253,8 +254,8 @@ class EnhancedWebSocketManager:
         self,
         pipeline_id: str,
         user_id: str,
-        suggestions: List[Dict]
-    ):
+        suggestions: List[Dict[str, Any]]
+    ) -> None:
         """Stream AI suggestions as they're generated."""
         for i, suggestion in enumerate(suggestions):
             message = {
@@ -277,8 +278,8 @@ class EnhancedWebSocketManager:
     async def notify_pattern_detected(
         self,
         pipeline_id: str,
-        pattern: Dict
-    ):
+        pattern: Dict[str, Any]
+    ) -> None:
         """Notify users when a pattern is detected."""
         message = {
             "type": MessageType.PATTERN_DETECTED,
@@ -295,8 +296,8 @@ class EnhancedWebSocketManager:
     async def notify_optimization(
         self,
         pipeline_id: str,
-        optimization: Dict
-    ):
+        optimization: Dict[str, Any]
+    ) -> None:
         """Notify users of optimization opportunities."""
         message = {
             "type": MessageType.OPTIMIZATION_SUGGESTED,
@@ -313,7 +314,7 @@ class EnhancedWebSocketManager:
         self,
         pipeline_id: str,
         user_id: str,
-        edit: Dict
+        edit: Dict[str, Any]
     ) -> bool:
         """Handle collaborative editing with conflict resolution."""
         # Check if user has edit lock
@@ -362,7 +363,7 @@ class EnhancedWebSocketManager:
         
         return True
     
-    async def _auto_release_lock(self, pipeline_id: str, user_id: str, timeout: int):
+    async def _auto_release_lock(self, pipeline_id: str, user_id: str, timeout: int) -> None:
         """Auto-release edit lock after timeout."""
         await asyncio.sleep(timeout)
         
@@ -379,7 +380,7 @@ class EnhancedWebSocketManager:
                     }
                 )
     
-    async def _schedule_auto_save(self, pipeline_id: str, user_id: str):
+    async def _schedule_auto_save(self, pipeline_id: str, user_id: str) -> None:
         """Schedule auto-save of draft."""
         # Cancel existing timer
         timer_key = f"{pipeline_id}:{user_id}"
@@ -391,7 +392,7 @@ class EnhancedWebSocketManager:
             self._auto_save_draft(pipeline_id, user_id, 5)
         )
     
-    async def _auto_save_draft(self, pipeline_id: str, user_id: str, delay: int):
+    async def _auto_save_draft(self, pipeline_id: str, user_id: str, delay: int) -> None:
         """Auto-save draft after delay."""
         await asyncio.sleep(delay)
         
@@ -423,19 +424,19 @@ class EnhancedWebSocketManager:
         self,
         pipeline_id: str,
         user_id: str,
-        data: Dict
-    ) -> Dict:
+        data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Process incoming WebSocket message with unified agent."""
         message_type = data.get("type", MessageType.CHAT)
         
         if message_type == MessageType.CHAT:
             # Process with unified agent
-            from app.agents.unified_agent import unified_agent
+            from app.agents.legacy.unified_agent import unified_agent
             
             # Initialize agent if needed
             if not hasattr(unified_agent, 'initialized'):
                 await unified_agent.initialize()
-                unified_agent.initialized = True
+                unified_agent.initialized = True  # type: ignore[attr-defined]
             
             # Get websocket for streaming
             websocket = self.connections[pipeline_id][user_id]
@@ -510,7 +511,7 @@ class EnhancedWebSocketManager:
                 "message": f"Unknown message type: {message_type}"
             }
     
-    def get_pipeline_state(self, pipeline_id: str) -> Dict:
+    def get_pipeline_state(self, pipeline_id: str) -> Dict[str, Any]:
         """Get current pipeline state."""
         return self.pipeline_states.get(pipeline_id, {})
     
@@ -518,7 +519,7 @@ class EnhancedWebSocketManager:
         """Get list of active users for a pipeline."""
         return list(self.connections.get(pipeline_id, {}).keys())
     
-    async def cleanup(self):
+    async def cleanup(self) -> None:
         """Cleanup resources."""
         # Cancel all timers
         for timer in self.draft_timers.values():

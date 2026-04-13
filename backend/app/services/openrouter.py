@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Optional
+from typing import Optional, Any
 from langchain_openai import ChatOpenAI
 from langchain_core.language_models.base import BaseLanguageModel
 from pydantic import SecretStr
@@ -111,6 +111,7 @@ def get_custom_llm() -> ChatOpenAI:
     custom_headers = {}
     
     # Configure API key based on provider type
+    api_key: Optional[SecretStr] = None
     if settings.CUSTOM_LLM_PROVIDER_TYPE == "ollama":
         # Ollama typically doesn't need an API key
         api_key = SecretStr(settings.CUSTOM_LLM_API_KEY) if settings.CUSTOM_LLM_API_KEY else SecretStr("ollama")
@@ -157,7 +158,7 @@ def get_custom_llm() -> ChatOpenAI:
         "api_key": api_key,
         "model": settings.CUSTOM_LLM_MODEL,
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        
         "streaming": settings.CUSTOM_LLM_STREAMING,
         "timeout": settings.CUSTOM_LLM_TIMEOUT,
         "max_retries": settings.CUSTOM_LLM_MAX_RETRIES,
@@ -184,6 +185,7 @@ def get_custom_llm() -> ChatOpenAI:
     logger.info(f"Custom LLM Configuration: {llm_config}")
     
     try:
+        # Create ChatOpenAI with dynamic config
         llm = ChatOpenAI(**llm_config)
         
         # Configure SSL if needed
@@ -197,7 +199,7 @@ def get_custom_llm() -> ChatOpenAI:
         logger.error(f"Failed to initialize custom LLM: {str(e)}")
         raise LLMProviderError(f"Failed to initialize custom LLM: {str(e)}")
 
-def get_llm() -> BaseLanguageModel:
+def get_llm() -> BaseLanguageModel[Any]:
     """
     Get the appropriate LLM instance based on the LLM_PROVIDER setting.
     
@@ -233,7 +235,7 @@ def get_llm() -> BaseLanguageModel:
             "Please check your configuration and network connectivity."
         )
 
-def get_llm_with_fallback() -> BaseLanguageModel:
+def get_llm_with_fallback() -> BaseLanguageModel[Any]:
     """
     Get LLM instance with fallback to alternative providers if primary fails.
     This provides resilience for production deployments.
@@ -303,7 +305,7 @@ def get_custom_llm_direct() -> ChatOpenAI:
     """Direct access to custom LLM (bypasses provider selection)."""
     return get_custom_llm()
 
-async def test_connection() -> dict:
+async def test_connection() -> dict[str, Any]:
     """
     Test connectivity to the configured LLM provider.
     

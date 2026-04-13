@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, cast
 from ..models.osint import Investigation
 
 logger = logging.getLogger(__name__)
@@ -11,17 +11,17 @@ logger = logging.getLogger(__name__)
 class InvestigationStorage:
     """File-based storage for investigations when database is not available."""
     
-    def __init__(self, storage_path: Optional[str] = None):
+    def __init__(self, storage_path: Optional[str] = None) -> None:
         if storage_path is None:
             backend_dir = Path(__file__).parent.parent.parent
             data_dir = backend_dir / "data"
             data_dir.mkdir(exist_ok=True)
-            storage_path = data_dir / "investigations.json"
-        
-        self.storage_path = Path(storage_path)
+            self.storage_path = data_dir / "investigations.json"
+        else:
+            self.storage_path = Path(storage_path)
         self._ensure_storage_exists()
     
-    def _ensure_storage_exists(self):
+    def _ensure_storage_exists(self) -> None:
         """Ensure the storage file and directory exist."""
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         

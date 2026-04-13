@@ -127,7 +127,7 @@ class TimeoutException(ScrapingException):
 class ValidationException(ScrapingException):
     """Data validation errors."""
     
-    def __init__(self, message: str, invalid_data: Optional[Dict] = None, context: Optional[ErrorContext] = None):
+    def __init__(self, message: str, invalid_data: Optional[Dict[str, Any]] = None, context: Optional[ErrorContext] = None):
         super().__init__(
             message=message,
             category=ErrorCategory.VALIDATION,
@@ -153,7 +153,7 @@ class RetryConfig:
 class RetryMechanism:
     """Implements retry logic with exponential backoff and jitter."""
     
-    def __init__(self, config: RetryConfig = None):
+    def __init__(self, config: Optional[RetryConfig] = None):
         self.config = config or RetryConfig()
     
     def calculate_delay(self, retry_count: int) -> float:
@@ -186,11 +186,11 @@ class RetryMechanism:
     
     async def execute_with_retry(
         self,
-        operation: Callable,
-        *args,
+        operation: Callable[..., Any],
+        *args: Any,
         context: Optional[ErrorContext] = None,
-        **kwargs
-    ):
+        **kwargs: Any
+    ) -> Any:
         """Execute operation with retry logic."""
         last_exception = None
         
@@ -242,14 +242,14 @@ class CircuitState(Enum):
 class CircuitBreaker:
     """Implements circuit breaker pattern for external services."""
     
-    def __init__(self, service_name: str, config: CircuitBreakerConfig = None):
+    def __init__(self, service_name: str, config: Optional[CircuitBreakerConfig] = None):
         self.service_name = service_name
         self.config = config or CircuitBreakerConfig()
         self.state = CircuitState.CLOSED
         self.failure_count = 0
         self.success_count = 0
-        self.last_failure_time = None
-        self.last_success_time = None
+        self.last_failure_time: Optional[float] = None
+        self.last_success_time: Optional[float] = None
         
     def is_closed(self) -> bool:
         """Check if circuit is closed (allowing requests)."""
@@ -270,7 +270,7 @@ class CircuitBreaker:
         # HALF_OPEN state
         return True
     
-    def record_success(self):
+    def record_success(self) -> None:
         """Record a successful operation."""
         self.last_success_time = time.time()
         
@@ -284,7 +284,7 @@ class CircuitBreaker:
             # Reset failure count on success in closed state
             self.failure_count = max(0, self.failure_count - 1)
     
-    def record_failure(self, exception: Exception):
+    def record_failure(self, exception: Exception) -> None:
         """Record a failed operation."""
         self.last_failure_time = time.time()
         
@@ -300,7 +300,7 @@ class CircuitBreaker:
                 self.state = CircuitState.OPEN
                 logger.error(f"Circuit breaker for {self.service_name} OPEN - failure in HALF_OPEN state")
     
-    async def call(self, operation: Callable, *args, **kwargs):
+    async def call(self, operation: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Execute operation through circuit breaker."""
         if not self.is_closed():
             raise ScrapingException(
@@ -321,19 +321,19 @@ class CircuitBreaker:
 class ErrorHandler:
     """Centralized error handling and logging."""
     
-    def __init__(self):
-        self.error_stats: Dict[str, Dict] = {}
+    def __init__(self) -> None:
+        self.error_stats: Dict[str, Dict[str, Any]] = {}
         self.circuit_breakers: Dict[str, CircuitBreaker] = {}
     
-    def get_circuit_breaker(self, service_name: str, config: CircuitBreakerConfig = None) -> CircuitBreaker:
+    def get_circuit_breaker(self, service_name: str, config: Optional[CircuitBreakerConfig] = None) -> CircuitBreaker:
         """Get or create circuit breaker for a service."""
         if service_name not in self.circuit_breakers:
             self.circuit_breakers[service_name] = CircuitBreaker(service_name, config)
         return self.circuit_breakers[service_name]
     
-    def log_error(self, error: ScrapingException):
+    def log_error(self, error: ScrapingException) -> None:
         """Log error with structured information."""
-        error_key = f"{error.category.value}:{error.service if error.context else 'unknown'}"
+        error_key = f"{error.category.value}:{error.context.service if error.context else 'unknown'}"
         
         # Update statistics
         if error_key not in self.error_stats:
@@ -351,7 +351,7 @@ class ErrorHandler:
             self.error_stats[error_key]['severity_distribution'].get(severity, 0) + 1
         
         # Log with appropriate level
-        log_message = f"[{error.category.value.upper()}] {error.message}"
+        log_message = f"[{error.category.value.upper()}] {str(error)}"
         if error.context:
             log_message += f" | Service: {error.context.service}, Operation: {error.context.operation}"
             if error.context.url:
@@ -371,7 +371,7 @@ class ErrorHandler:
         service: str,
         operation: str,
         url: Optional[str] = None,
-        **kwargs
+        **kwargs: Any
     ) -> ErrorContext:
         """Create error context with common fields."""
         return ErrorContext(
@@ -403,13 +403,13 @@ error_handler = ErrorHandler()
 def handle_errors(
     service_name: str,
     operation_name: str = "unknown",
-    retry_config: RetryConfig = None,
-    circuit_breaker_config: CircuitBreakerConfig = None
-):
+    retry_config: Optional[RetryConfig] = None,
+    circuit_breaker_config: Optional[CircuitBreakerConfig] = None
+) -> Callable[..., Any]:
     """Decorator for handling errors with retry and circuit breaker."""
     
-    def decorator(func):
-        async def wrapper(*args, **kwargs):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Create retry mechanism and circuit breaker
             retry_mechanism = RetryMechanism(retry_config)
             circuit_breaker = error_handler.get_circuit_breaker(service_name, circuit_breaker_config)
@@ -421,7 +421,7 @@ def handle_errors(
                 url=kwargs.get('url')
             )
             
-            async def operation():
+            async def operation() -> Any:
                 return await circuit_breaker.call(func, *args, **kwargs)
             
             try:

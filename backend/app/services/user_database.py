@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, cast
 import asyncio
 import logging
 from pydantic import BaseModel, Field
@@ -14,19 +14,23 @@ logger = logging.getLogger(__name__)
 class UserDatabase:
     """Real file-based user database for authentication system."""
     
-    def __init__(self, db_path: Optional[str] = None):
+    users_db: Dict[str, Dict[str, Any]]
+    metadata: Dict[str, Any]
+    db_path: Path
+    
+    def __init__(self, db_path: Optional[str] = None) -> None:
         if db_path is None:
             # Default to data/users.json in the backend directory
             backend_dir = Path(__file__).parent.parent.parent
             data_dir = backend_dir / "data"
             data_dir.mkdir(exist_ok=True)
-            db_path = data_dir / "users.json"
-        
-        self.db_path = Path(db_path)
+            self.db_path = data_dir / "users.json"
+        else:
+            self.db_path = Path(db_path)
         self._ensure_database_exists()
         self._load_users()
     
-    def _ensure_database_exists(self):
+    def _ensure_database_exists(self) -> None:
         """Ensure the database file and directory exist."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         
@@ -43,7 +47,7 @@ class UserDatabase:
                 json.dump(initial_data, f, indent=2)
             logger.info(f"Created user database at {self.db_path}")
     
-    def _load_users(self):
+    def _load_users(self) -> None:
         """Load users from database file."""
         try:
             with open(self.db_path, 'r') as f:
@@ -55,7 +59,7 @@ class UserDatabase:
             self.users_db = {}
             self.metadata = {"created_at": datetime.utcnow().isoformat(), "version": "1.0"}
     
-    def _save_users(self):
+    def _save_users(self) -> None:
         """Save users to database file."""
         try:
             data = {
@@ -79,6 +83,9 @@ class UserDatabase:
     def create_user(self, user_data: Dict[str, Any]) -> bool:
         """Create a new user in the database."""
         username = user_data.get("username")
+        if not username:
+            logger.error("Username is required for user creation")
+            return False
         if username in self.users_db:
             logger.warning(f"User {username} already exists")
             return False
@@ -89,7 +96,7 @@ class UserDatabase:
                 "created_at": datetime.utcnow().isoformat(),
                 "updated_at": datetime.utcnow().isoformat(),
                 "disabled": False,
-                "id": f"user-{hashlib.md5(username.encode()).hexdigest()[:8]}"
+                "id": f"user-{hashlib.sha256(username.encode() if username else b'').hexdigest()[:8]}"
             })
             
             self.users_db[username] = user_data
@@ -149,7 +156,7 @@ class UserDatabase:
             users.append(safe_user)
         return users
     
-    def authenticate_user(self, username: str, password: str, password_hasher) -> Optional[Dict[str, Any]]:
+    def authenticate_user(self, username: str, password: str, password_hasher: Any) -> Optional[Dict[str, Any]]:
         """Authenticate user with password."""
         user_data = self.get_user(username)
         if not user_data:
@@ -176,7 +183,7 @@ class UserDatabase:
             logger.error(f"Password verification error for {username}: {e}")
             return None
     
-    def change_password(self, username: str, new_password: str, password_hasher) -> bool:
+    def change_password(self, username: str, new_password: str, password_hasher: Any) -> bool:
         """Change user password."""
         user_data = self.get_user(username)
         if not user_data:
@@ -226,7 +233,7 @@ def update_user_in_db(username: str, updates: Dict[str, Any]) -> bool:
     db = get_user_database()
     return db.update_user(username, updates)
 
-def authenticate_user_in_db(username: str, password: str, password_hasher) -> Optional[Dict[str, Any]]:
+def authenticate_user_in_db(username: str, password: str, password_hasher: Any) -> Optional[Dict[str, Any]]:
     """Authenticate user using real database."""
     db = get_user_database()
     return db.authenticate_user(username, password, password_hasher)
@@ -237,7 +244,7 @@ def list_all_users() -> List[Dict[str, Any]]:
     return db.list_users()
 
 # Initialize with a default user if the database is empty
-def initialize_default_user():
+def initialize_default_user() -> None:
     """Initialize database with a default admin user if empty."""
     db = get_user_database()
     

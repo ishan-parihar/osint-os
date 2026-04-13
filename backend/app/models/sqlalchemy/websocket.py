@@ -26,7 +26,7 @@ class WebSocketConnection(Base):
     def to_dict(self) -> Dict[str, Any]:
         """Convert WebSocket connection to dictionary."""
         return {
-            "id": self.id,
+            "id": self.uuid,
             "connection_id": self.connection_id,
             "pipeline_id": self.pipeline_id,
             "metadata": self.connection_metadata,
@@ -47,7 +47,7 @@ class ConnectionMetadata(Base):
     def to_dict(self) -> Dict[str, Any]:
         """Convert connection metadata to dictionary."""
         return {
-            "id": self.id,
+            "id": self.uuid,
             "connection_id": self.connection_id,
             "key": self.key,
             "value": self.value,

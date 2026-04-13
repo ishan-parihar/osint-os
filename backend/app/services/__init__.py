@@ -6,7 +6,7 @@ Contains various services for the ScrapeCraft backend.
 
 # Agent structure migration is complete - re-enable LangGraph workflow imports
 from .graph import (
-    OSINTWorkflow, 
+    OSINTWorkflow,
     create_osint_workflow,
     objective_definition_node,
     strategy_formulation_node,
@@ -17,7 +17,7 @@ from .graph import (
     contextual_analysis_node,
     intelligence_synthesis_node,
     quality_assurance_node,
-    report_generation_node
+    report_generation_node,
 )
 from .state import InvestigationState
 
@@ -30,7 +30,7 @@ from .task_storage import task_storage
 
 __all__ = [
     "OSINTWorkflow",
-    "create_osint_workflow", 
+    "create_osint_workflow",
     "InvestigationState",
     "objective_definition_node",
     "strategy_formulation_node",
@@ -44,5 +44,5 @@ __all__ = [
     "report_generation_node",
     "get_db",
     "ConnectionManager",
-    "task_storage"
+    "task_storage",
 ]

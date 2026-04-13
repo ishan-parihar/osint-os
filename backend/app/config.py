@@ -30,17 +30,29 @@ class Settings(BaseSettings):
     
     # Database
     DATABASE_URL: str = "sqlite:///./scrapecraft.db"
+    DEV_DATABASE_URL: str = "sqlite:///./scrapecraft_dev.db"
+    TEST_DATABASE_URL: str = "sqlite:///./test_scrapecraft.db"
     
     # Redis
-    REDIS_URL: str = "redis://redis:6379/0"
+    REDIS_URL: str = "redis://localhost:6379/0"
+    DEV_REDIS_URL: str = "redis://localhost:6379/1"
     
     # Security
-    JWT_SECRET: str = "default-secret-change-in-production"
+    JWT_SECRET: str = "default-secret-change-in-production-minimum-64-characters"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_HOURS: int = 24
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    JWT_REFRESH_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days
     
     # CORS
-    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:80"]
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:3000", 
+        "http://localhost:4000",  # Add frontend port for run script compatibility
+        "http://localhost:80",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:4000",  # Add for script compatibility  
+        "http://127.0.0.1:80"
+    ]
     
     # LLM Provider Configuration
     LLM_PROVIDER: Literal["openrouter", "openai", "custom"] = "openrouter"
@@ -49,9 +61,11 @@ class Settings(BaseSettings):
     OPENROUTER_MODEL: str = "moonshotai/kimi-k2"
     
     # App Config
-    APP_NAME: str = "ScrapeCraft"
+    APP_NAME: str = "ScrapeCraft OSINT Platform"
     VERSION: str = "1.0.0"
     DEBUG: bool = True
+    ENVIRONMENT: str = "development"
+    PRODUCTION_MODE: bool = False
     
     # AI Agent Settings
     AI_AGENTS_ENABLED: bool = True
@@ -149,3 +163,19 @@ class Settings(BaseSettings):
         extra = "ignore"  # Ignore extra environment variables
 
 settings = Settings()
+
+def get_database_url() -> str:
+    """Get appropriate database URL based on environment."""
+    if settings.ENVIRONMENT == "test":
+        return settings.DEV_DATABASE_URL.replace("_dev", "_test")
+    elif settings.ENVIRONMENT == "development" and not settings.PRODUCTION_MODE:
+        return settings.DEV_DATABASE_URL
+    else:
+        return settings.DATABASE_URL
+
+def get_redis_url() -> str:
+    """Get appropriate Redis URL based on environment."""
+    if settings.ENVIRONMENT == "development" and not settings.PRODUCTION_MODE:
+        return settings.DEV_REDIS_URL
+    else:
+        return settings.REDIS_URL

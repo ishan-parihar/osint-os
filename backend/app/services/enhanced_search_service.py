@@ -6,7 +6,7 @@ Provides advanced search capabilities including deduplication, ranking, and spec
 import asyncio
 import hashlib
 import re
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, cast
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 import logging
@@ -22,7 +22,7 @@ class EnhancedSearchService:
     Enhanced search service with specialized search capabilities and intelligent result processing.
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.content_validator = ContentValidator()
         self.domain_authority = self._load_domain_authority()
         
@@ -168,7 +168,7 @@ class EnhancedSearchService:
             logger.info(f"Image search returned {len(image_results)} results")
             return image_results[:max_results]
     
-    async def search_social_media(self, query: str, platforms: List[str] = None, max_results: int = 10) -> Dict[str, List[Dict[str, Any]]]:
+    async def search_social_media(self, query: str, platforms: Optional[List[str]] = None, max_results: int = 10) -> Dict[str, List[Dict[str, Any]]]:
         """
         Perform social media search across platforms.
         
@@ -248,14 +248,14 @@ class EnhancedSearchService:
         
         for result in results:
             url = result['url']
-            url_hash = hashlib.md5(self._normalize_url(url).encode()).hexdigest()
+            url_hash = hashlib.sha256(self._normalize_url(url).encode()).hexdigest()
             
             if url_hash not in seen_urls:
                 seen_urls.add(url_hash)
                 deduplicated.append(result)
             else:
                 # Merge engine information if this URL appeared in multiple engines
-                existing = next((r for r in deduplicated if hashlib.md5(self._normalize_url(r['url']).encode()).hexdigest() == url_hash), None)
+                existing = next((r for r in deduplicated if hashlib.sha256(self._normalize_url(r['url']).encode()).hexdigest() == url_hash), None)
                 if existing:
                     existing['engines'] = list(set(existing['engines'] + result['engines']))
                     existing['position'] = min(existing['position'], result['position'])
@@ -324,7 +324,7 @@ class EnhancedSearchService:
         
         return max(1.0, min(10.0, base_score))
     
-    def _calculate_freshness_score(self, timestamp: str = None, time_range: str = "30d") -> float:
+    def _calculate_freshness_score(self, timestamp: Optional[str] = None, time_range: str = "30d") -> float:
         """Calculate freshness score based on content age."""
         if not timestamp:
             return 5.0  # Neutral score for unknown dates
@@ -493,14 +493,16 @@ class EnhancedSearchService:
         from app.services.social_media_service import SocialMediaService
         
         async with SocialMediaService() as social_service:
-            return await social_service.search_twitter(query, max_results)
+            result = await social_service.search_twitter(query, max_results)
+            return cast(List[Dict[str, Any]], result)
     
     async def _search_reddit(self, query: str, max_results: int) -> List[Dict[str, Any]]:
         """Search Reddit using real API integration."""
         from app.services.social_media_service import SocialMediaService
         
         async with SocialMediaService() as social_service:
-            return await social_service.search_reddit(query, max_results)
+            result = await social_service.search_reddit(query, max_results)
+            return cast(List[Dict[str, Any]], result)
     
     async def _search_linkedin(self, query: str, max_results: int) -> List[Dict[str, Any]]:
         """Search LinkedIn (placeholder for real API integration)."""
@@ -513,8 +515,8 @@ async def perform_enhanced_search(
     query: str, 
     search_type: str = "general",
     max_results: int = 10,
-    engines: List[str] = None,
-    **kwargs
+    engines: Optional[List[str]] = None,
+    **kwargs: Any
 ) -> List[Dict[str, Any]]:
     """
     Convenience function for enhanced search.
@@ -539,7 +541,14 @@ async def perform_enhanced_search(
         return await enhanced_service.search_images(query, max_results)
     elif search_type == "social":
         platforms = kwargs.get('platforms', ['twitter', 'reddit'])
-        return await enhanced_service.search_social_media(query, platforms, max_results)
+        social_results = await enhanced_service.search_social_media(query, platforms, max_results)
+        # Flatten social media results to match expected return type
+        flattened_results = []
+        for platform, results in social_results.items():
+            for result in results:
+                result['platform'] = platform
+                flattened_results.append(result)
+        return flattened_results
     else:  # general search
         async with RealSearchService() as search_service:
             multi_results = await search_service.multi_search(query, engines, max_results)

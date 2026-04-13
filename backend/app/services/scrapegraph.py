@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Union
 import asyncio
 import logging
 from app.config import settings
@@ -13,7 +13,7 @@ USE_LOCAL_SCRAPING = getattr(settings, 'USE_LOCAL_SCRAPING', True)  # Default to
 
 if not USE_LOCAL_SCRAPING:
     # Import the original API-based client
-    from scrapegraph_py import AsyncClient
+    from scrapegraph_py import AsyncClient  # type: ignore
     
     class ScrapingService:
         """Service for interacting with ScrapeGraphAI API (original)."""
@@ -26,7 +26,7 @@ if not USE_LOCAL_SCRAPING:
             urls: List[str],
             schema: Optional[Dict[str, Any]],
             prompt: str
-        ) -> List[Dict]:
+        ) -> List[Dict[str, Any]]:
             """Execute scraping for multiple URLs concurrently."""
             results = []
             
@@ -56,12 +56,15 @@ if not USE_LOCAL_SCRAPING:
                             })
                             logger.error(f"Scraping failed for {urls[i]}: {result}")
                         else:
-                            # Handle the API response format
+# Handle the API response format
                             if isinstance(result, dict) and 'result' in result:
                                 # Extract the actual data from the 'result' field
                                 data = result.get('result', {})
-                            elif hasattr(result, 'model_dump'):
-                                data = result.model_dump()
+                            elif hasattr(result, 'model_dump') and hasattr(result, '__class__'):
+                                try:
+                                    data = result.model_dump()
+                                except (AttributeError, TypeError):
+                                    data = result
                             else:
                                 data = result
                                 
@@ -186,7 +189,7 @@ if not USE_LOCAL_SCRAPING:
                 return False
 else:
     # Use enhanced scraping service
-    class ScrapingService:
+    class EnhancedScrapingGraphService:
         """Service for enhanced web scraping with real functionality."""
         
         def __init__(self, api_key: Optional[str] = None):
@@ -205,7 +208,7 @@ else:
             urls: List[str],
             schema: Optional[Dict[str, Any]],
             prompt: str
-        ) -> List[Dict]:
+        ) -> List[Dict[str, Any]]:
             """Execute scraping for multiple URLs using enhanced scraping."""
             return await self.enhanced_service.execute_pipeline(urls, schema, prompt)
         
@@ -216,3 +219,10 @@ else:
         async def validate_api_key(self) -> bool:
             """Validate enhanced scraping configuration."""
             return await self.enhanced_service.validate_config()
+
+# Add backward compatibility alias
+if USE_LOCAL_SCRAPING:
+    # Create a simple alias to avoid type conflicts
+    class ScrapingService(EnhancedScrapingGraphService):
+        """Backward compatibility alias for EnhancedScrapingGraphService."""
+        pass

@@ -22,7 +22,7 @@ from typing import Optional, Dict, Any, List
 import re
 
 
-def setup_project_logging(project_path: Path):
+def setup_project_logging(project_path: Path) -> None:
     """Setup logging to write to the project's logs directory."""
     # Create logs directory if it doesn't exist
     logs_dir = project_path / 'logs'
@@ -400,7 +400,7 @@ def status(project_path: str) -> None:
 @click.option('--list', '-l', 'list_config', is_flag=True, help='List current configuration')
 @click.option('--set', '-s', 'set_config', nargs=2, metavar='KEY VALUE', help='Set configuration value')
 @click.option('--file', '-f', type=click.Path(exists=True), help='Configuration file to load')
-def config(list_config: bool, set_config: Optional[tuple], file: Optional[str]) -> None:
+def config(list_config: bool, set_config: Optional[tuple[str, str]], file: Optional[str]) -> None:
     """Manage OSINT-OS configuration."""
     config_file = Path('.env')
     

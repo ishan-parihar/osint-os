@@ -8,7 +8,19 @@ import asyncio
 from app.config import settings
 
 # Import routers with proper error handling
-from app.api import pipelines, scraping, execution, workflow, osint, ai_investigation, auth
+from app.api import (
+    pipelines,
+    scraping,
+    execution,
+    workflow,
+    osint,
+    ai_investigation,
+    auth,
+)
+
+# Import enhanced auth and admin routers separately
+from .api.enhanced_auth import router as enhanced_auth_router
+from .api.admin import router as admin_router
 
 from app.services.websocket import ConnectionManager
 from app.services.workflow_manager import get_workflow_manager
@@ -19,35 +31,44 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Configure SQLAlchemy logging to reduce spam
-logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
-logging.getLogger('sqlalchemy.pool').setLevel(logging.WARNING)
-logging.getLogger('sqlalchemy.orm').setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.orm").setLevel(logging.WARNING)
 
 # Connection manager for WebSocket
 manager = ConnectionManager()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"Starting {settings.APP_NAME} v{settings.VERSION}")
-    
+
     # Validate configuration first
     try:
-        from app.config_validator import validate_configuration, validate_production_mode
+        from app.config_validator import (
+            validate_configuration,
+            validate_production_mode,
+        )
+
         config_validation = validate_configuration()
-        
+
         if config_validation["status"] == "error":
             logger.error("CRITICAL: Configuration validation failed!")
             for error in config_validation["errors"]:
                 logger.error(f"  - {error}")
-            logger.error("Application may not function correctly without proper configuration")
+            logger.error(
+                "Application may not function correctly without proper configuration"
+            )
         else:
             logger.info("Configuration validation passed")
-            logger.info(f"Configured services: {config_validation['configured_services']}")
+            logger.info(
+                f"Configured services: {config_validation['configured_services']}"
+            )
             if config_validation["warnings"]:
                 for warning in config_validation["warnings"]:
                     logger.warning(f"  - {warning}")
-        
+
         # Production mode validation
         if not settings.DEBUG:
             prod_validation = validate_production_mode()
@@ -55,19 +76,20 @@ async def lifespan(app: FastAPI):
                 logger.warning("System not fully production-ready")
                 for warning in prod_validation["warnings"]:
                     logger.warning(f"  - {warning}")
-    
+
     except Exception as e:
         logger.error(f"Configuration validation failed: {e}")
         logger.error("Application may not function correctly")
-    
+
     # Initialize database persistence
     try:
         from app.services.database import db_persistence
+
         db_persistence.initialize_database()
         logger.info("Database persistence initialized")
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
-    
+
     # Initialize Redis task storage
     try:
         await task_storage.connect()
@@ -75,28 +97,29 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to initialize Redis task storage: {e}")
         logger.info("Continuing without Redis...")
-    
+
     # Start background task for WebSocket connection cleanup
     cleanup_task = asyncio.create_task(periodic_cleanup())
-    
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down...")
-    
+
     # Cancel background task
     cleanup_task.cancel()
     try:
         await cleanup_task
     except asyncio.CancelledError:
         pass
-    
+
     try:
         if task_storage.redis_client:
             await task_storage.disconnect()
             logger.info("Redis task storage disconnected")
     except Exception as e:
         logger.error(f"Error disconnecting Redis: {e}")
+
 
 async def periodic_cleanup():
     """Background task to periodically clean up stale connections."""
@@ -110,40 +133,48 @@ async def periodic_cleanup():
             logger.error(f"Error in periodic cleanup: {e}")
             await asyncio.sleep(60)  # Wait 1 minute before retrying
 
-app = FastAPI(
-    title=settings.APP_NAME,
-    version=settings.VERSION,
-    lifespan=lifespan
-)
+
+app = FastAPI(title=settings.APP_NAME, version=settings.VERSION, lifespan=lifespan)
+
+# Import security middleware
+from app.security_middleware import configure_security_middleware
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-Requested-With"],
 )
 
 # Include routers - OSINT router first to avoid WebSocket route conflicts
 app.include_router(osint.router, prefix="/api/osint", tags=["osint"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(
+    enhanced_auth_router, prefix="/api/enhanced-auth", tags=["Enhanced Authentication"]
+)
+app.include_router(admin_router, prefix="/api/admin", tags=["Admin Dashboard"])
 # app.include_router(chat.router, prefix="/api/chat", tags=["chat"])  # Temporarily disabled
 app.include_router(pipelines.router, prefix="/api/pipelines", tags=["pipelines"])
 app.include_router(scraping.router, prefix="/api/scraping", tags=["scraping"])
 app.include_router(execution.router, prefix="/api/execution", tags=["execution"])
 app.include_router(workflow.router, prefix="/api/workflow", tags=["workflow"])
-app.include_router(ai_investigation.router, prefix="/api/ai-investigation", tags=["AI Investigation"])
+app.include_router(
+    ai_investigation.router, prefix="/api/ai-investigation", tags=["AI Investigation"]
+)
 
 logger.info("OSINT and AI Investigation routers included successfully")
+
 
 @app.get("/")
 async def root():
     return {
         "name": settings.APP_NAME,
         "version": settings.VERSION,
-        "status": "operational"
+        "status": "operational",
     }
+
 
 @app.get("/health")
 async def health_check():
@@ -151,9 +182,9 @@ async def health_check():
     health_status = {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
-        "services": {}
+        "services": {},
     }
-    
+
     # Check WebSocket manager
     try:
         ws_health = await manager.health_check()
@@ -163,10 +194,10 @@ async def health_check():
     except Exception as e:
         health_status["services"]["websocket"] = {
             "status": "unhealthy",
-            "error": str(e)
+            "error": str(e),
         }
         health_status["status"] = "degraded"
-    
+
     # Check Redis/Task Storage
     try:
         if task_storage.redis_client:
@@ -174,36 +205,35 @@ async def health_check():
             ping_result = await task_storage.ensure_connection()
             health_status["services"]["redis"] = {
                 "status": "healthy" if ping_result else "unhealthy",
-                "connected": ping_result
+                "connected": ping_result,
             }
         else:
             health_status["services"]["redis"] = {
                 "status": "disabled",
-                "connected": False
+                "connected": False,
             }
     except Exception as e:
         health_status["services"]["redis"] = {
             "status": "unhealthy",
             "connected": False,
-            "error": str(e)
+            "error": str(e),
         }
         health_status["status"] = "degraded"
-    
+
     # Check LLM Provider
     try:
         from app.services.openrouter import test_connection
+
         llm_health = await test_connection()
         health_status["services"]["llm"] = llm_health
         if llm_health.get("status") != "healthy":
             health_status["status"] = "degraded"
     except Exception as e:
-        health_status["services"]["llm"] = {
-            "status": "unhealthy",
-            "error": str(e)
-        }
+        health_status["services"]["llm"] = {"status": "unhealthy", "error": str(e)}
         health_status["status"] = "degraded"
-    
+
     return health_status
+
 
 @app.get("/health/redis")
 async def redis_health():
@@ -214,21 +244,22 @@ async def redis_health():
             return {
                 "status": "healthy" if ping_result else "unhealthy",
                 "connected": ping_result,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.utcnow().isoformat(),
             }
         else:
             return {
                 "status": "disabled",
                 "connected": False,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.utcnow().isoformat(),
             }
     except Exception as e:
         return {
             "status": "unhealthy",
             "connected": False,
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
+
 
 @app.get("/health/websocket")
 async def websocket_health():
@@ -240,22 +271,25 @@ async def websocket_health():
         return {
             "status": "unhealthy",
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
+
 
 @app.get("/health/llm")
 async def llm_health():
     """LLM provider connectivity health check."""
     try:
         from app.services.openrouter import test_connection
+
         llm_health = await test_connection()
         return llm_health
     except Exception as e:
         return {
             "status": "unhealthy",
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
+
 
 @app.websocket("/api/ws/{pipeline_id}")
 async def websocket_endpoint(websocket: WebSocket, pipeline_id: str):
@@ -263,13 +297,15 @@ async def websocket_endpoint(websocket: WebSocket, pipeline_id: str):
     try:
         while True:
             data = await websocket.receive_json()
-            
+
             # Update connection metadata for ping messages
             if data.get("type") == "ping":
                 connection_id = f"{pipeline_id}_{id(websocket)}"
                 if connection_id in manager.connection_metadata:
-                    manager.connection_metadata[connection_id]["last_ping"] = datetime.utcnow()
-            
+                    manager.connection_metadata[connection_id]["last_ping"] = (
+                        datetime.utcnow()
+                    )
+
             try:
                 # Process the message through the agent
                 response = await manager.process_message(pipeline_id, data)
@@ -280,7 +316,7 @@ async def websocket_endpoint(websocket: WebSocket, pipeline_id: str):
                 error_response = {
                     "type": "error",
                     "response": "Sorry, I encountered an error processing your message. Please try again.",
-                    "error": str(processing_error)
+                    "error": str(processing_error),
                 }
                 await manager.send_personal_message(error_response, websocket)
     except WebSocketDisconnect:

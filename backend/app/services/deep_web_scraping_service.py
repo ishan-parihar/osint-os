@@ -37,10 +37,10 @@ class DeepWebScrapingService:
     Advanced web scraping service with JavaScript rendering and anti-bot evasion.
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.driver = None
         self.scraping_service = EnhancedWebScrapingService()
-        self.session_id = hashlib.md5(str(time.time()).encode()).hexdigest()[:8]
+        self.session_id = hashlib.sha256(str(time.time()).encode()).hexdigest()[:8]
         self._setup_driver_options()
         
     def _setup_driver_options(self):

@@ -7,6 +7,27 @@ import sys
 
 # Add the parent directory to the path so we can import our app modules
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), "app"))
+
+# Import all models to ensure they are registered with SQLAlchemy
+from app.models.sqlalchemy.base import Base
+from app.models.sqlalchemy.investigation import (
+    Investigation,
+    InvestigationTarget,
+    IntelligenceRequirement,
+    AgentAssignment,
+    CollectedEvidence,
+    AnalysisResult,
+    ThreatAssessment,
+    PhaseTransition,
+    InvestigationReport,
+    FinalAssessment,
+)
+from app.models.sqlalchemy.ai_investigation import AIInvestigation
+from app.models.sqlalchemy.audit import AuditLog
+from app.models.sqlalchemy.task import TaskResult
+from app.models.sqlalchemy.websocket import WebSocketConnection
+from app.models.sqlalchemy.workflow import WorkflowState
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -17,9 +38,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Create a simple metadata object for now
-# We'll update this once we create the SQLAlchemy models
-target_metadata = MetaData()
+# Use the metadata from our Base class which includes all models
+target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -72,7 +92,7 @@ def run_migrations_online() -> None:
     if configuration is None:
         configuration = {}
     configuration["sqlalchemy.url"] = get_url()
-    
+
     connectable = engine_from_config(
         configuration,
         prefix="sqlalchemy.",
@@ -80,9 +100,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

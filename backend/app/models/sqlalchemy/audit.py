@@ -1,42 +1,36 @@
 """
-Audit log SQLAlchemy models for data persistence.
+Audit-related SQLAlchemy models for security and compliance logging.
 """
 
 from datetime import datetime
 from typing import Optional, Dict, Any
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean
-from sqlalchemy.sql import func
-
+from sqlalchemy import Column, String, Text, Boolean, JSON, Integer
+from sqlalchemy.orm import Mapped, mapped_column
 from .base import Base
 
 
 class AuditLog(Base):
-    """Audit log model for tracking security events."""
+    """Audit log model for tracking security and compliance events."""
     
     __tablename__ = "audit_logs"
     
-    id = Column(Integer, primary_key=True, index=True)
-    event_type = Column(String(100), nullable=False, index=True)
-    user_id = Column(String(100), nullable=True, index=True)
-    session_id = Column(String(100), nullable=True)
-    ip_address = Column(String(45), nullable=True)  # IPv6 compatible
-    user_agent = Column(Text, nullable=True)
-    action = Column(String(100), nullable=False)
-    resource_type = Column(String(50), nullable=True)
-    resource_id = Column(String(100), nullable=True)
-    details = Column(Text, nullable=True)
-    timestamp = Column(DateTime, nullable=False, default=func.now(), index=True)
-    severity = Column(String(20), nullable=False, default='info')
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    user_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    session_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    action: Mapped[str] = mapped_column(String(200), nullable=False)
+    resource_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    resource_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    details: Mapped[Optional[str]] = mapped_column(JSON, nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(String(50), nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, default="info")
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert audit log to dictionary."""
-        timestamp_val = self.timestamp
-        if timestamp_val and hasattr(timestamp_val, 'isoformat'):
-            timestamp_val = timestamp_val.isoformat()
-        
         return {
-            "id": self.id,
+            "id": self.uuid,
             "event_type": self.event_type,
             "user_id": self.user_id,
             "session_id": self.session_id,
@@ -46,52 +40,10 @@ class AuditLog(Base):
             "resource_type": self.resource_type,
             "resource_id": self.resource_id,
             "details": self.details,
-            "timestamp": timestamp_val,
-            "severity": self.severity
-        }
-
-
-class UserSession(Base):
-    """User session model for tracking active sessions."""
-    
-    __tablename__ = "user_sessions"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    session_id = Column(String(100), nullable=False, unique=True, index=True)
-    user_id = Column(String(100), nullable=True, index=True)
-    ip_address = Column(String(45), nullable=True)
-    user_agent = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=func.now())
-    last_activity = Column(DateTime, nullable=False, default=func.now())
-    expires_at = Column(DateTime, nullable=False)
-    is_active = Column(Boolean, nullable=False, default=True)
-    session_data = Column(Text, nullable=True)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert user session to dictionary."""
-        created_at_val = self.created_at
-        if created_at_val and hasattr(created_at_val, 'isoformat'):
-            created_at_val = created_at_val.isoformat()
-            
-        last_activity_val = self.last_activity
-        if last_activity_val and hasattr(last_activity_val, 'isoformat'):
-            last_activity_val = last_activity_val.isoformat()
-            
-        expires_at_val = self.expires_at
-        if expires_at_val and hasattr(expires_at_val, 'isoformat'):
-            expires_at_val = expires_at_val.isoformat()
-        
-        return {
-            "id": self.id,
-            "session_id": self.session_id,
-            "user_id": self.user_id,
-            "ip_address": self.ip_address,
-            "user_agent": self.user_agent,
-            "created_at": created_at_val,
-            "last_activity": last_activity_val,
-            "expires_at": expires_at_val,
-            "is_active": self.is_active,
-            "session_data": self.session_data
+            "timestamp": self.timestamp,
+            "severity": self.severity,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
@@ -100,29 +52,27 @@ class SystemEvent(Base):
     
     __tablename__ = "system_events"
     
-    event_type = Column(String(100), nullable=False, index=True)
-    source = Column(String(100), nullable=False)
-    message = Column(Text, nullable=True)
-    details = Column(Text, nullable=True)
-    severity = Column(String(20), nullable=False, default='info')
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    component: Mapped[str] = mapped_column(String(100), nullable=False)
+    event_data: Mapped[Optional[str]] = mapped_column(JSON, nullable=True)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, default="info")
+    source: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(String(50), nullable=True)
+    resolved_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert system event to dictionary."""
-        created_at_val = self.created_at
-        if created_at_val and hasattr(created_at_val, 'isoformat'):
-            created_at_val = created_at_val.isoformat()
-            
-        updated_at_val = self.updated_at
-        if updated_at_val and hasattr(updated_at_val, 'isoformat'):
-            updated_at_val = updated_at_val.isoformat()
-        
         return {
-            "id": self.id,
+            "id": self.uuid,
             "event_type": self.event_type,
-            "source": self.source,
-            "message": self.message,
-            "details": self.details,
+            "component": self.component,
+            "event_data": self.event_data,
             "severity": self.severity,
-            "created_at": created_at_val,
-            "updated_at": updated_at_val
+            "source": self.source,
+            "resolved": self.resolved,
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+            "resolved_by": self.resolved_by,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

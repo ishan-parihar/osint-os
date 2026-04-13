@@ -6,20 +6,20 @@ investigation operations and system resources.
 """
 
 from enum import Enum
-from typing import List, Dict, Set, Optional, Union, TYPE_CHECKING
+from typing import List, Dict, Set, Optional, Union, TYPE_CHECKING, Any
 from functools import wraps
 from fastapi import HTTPException, Depends, status
 import logging
 
 if TYPE_CHECKING:
-    from app.api.auth import get_current_active_user, UserInDB
+    from app.api.auth import get_current_active_user, UserInDB as AuthUserInDB
 
 logger = logging.getLogger(__name__)
 
 
 # Simple UserInDB class for runtime use to avoid circular imports
 class UserInDB:
-    def __init__(self, username: str, **kwargs):
+    def __init__(self, username: str, **kwargs: Any) -> None:
         self.username = username
         for key, value in kwargs.items():
             setattr(self, key, value)
@@ -241,7 +241,7 @@ def get_user_role(user: UserInDB) -> UserRole:
     return role_mapping.get(user.username, UserRole.VIEWER)
 
 
-def require_permission(permission: Permission):
+def require_permission(permission: Permission) -> Any:
     """
     Decorator to require a specific permission.
     
@@ -250,9 +250,9 @@ def require_permission(permission: Permission):
         async def create_investigation(...):
             pass
     """
-    def decorator(func):
+    def decorator(func: Any) -> Any:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Try to get current_user from kwargs or FastAPI dependency injection
             current_user = kwargs.get('current_user')
             if not current_user:
@@ -290,7 +290,7 @@ def require_permission(permission: Permission):
     return decorator
 
 
-def require_any_permission(permissions: List[Permission]):
+def require_any_permission(permissions: List[Permission]) -> Any:
     """
     Decorator to require any of the specified permissions.
     
@@ -299,9 +299,9 @@ def require_any_permission(permissions: List[Permission]):
         async def get_investigation(...):
             pass
     """
-    def decorator(func):
+    def decorator(func: Any) -> Any:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             current_user = kwargs.get('current_user')
             if not current_user:
                 raise HTTPException(
@@ -327,7 +327,7 @@ def require_any_permission(permissions: List[Permission]):
     return decorator
 
 
-def require_role(role: UserRole):
+def require_role(role: UserRole) -> Any:
     """
     Decorator to require a specific role.
     
@@ -336,9 +336,9 @@ def require_role(role: UserRole):
         async def admin_function(...):
             pass
     """
-    def decorator(func):
+    def decorator(func: Any) -> Any:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             current_user = kwargs.get('current_user')
             if not current_user:
                 raise HTTPException(

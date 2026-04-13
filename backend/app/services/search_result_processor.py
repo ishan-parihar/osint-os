@@ -5,7 +5,7 @@ Processes search results with content extraction, relevance scoring, and quality
 
 import asyncio
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, cast
 from datetime import datetime
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
@@ -64,7 +64,7 @@ class ProcessingStats:
 class ContentQualityScorer:
     """Scores content quality based on various factors."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.spam_patterns = [
             r'click here',
             r'buy now',
@@ -89,7 +89,7 @@ class ContentQualityScorer:
             'edu', 'gov'
         }
     
-    def calculate_quality_score(self, content: ScrapedContent, search_result: Dict) -> float:
+    def calculate_quality_score(self, content: ScrapedContent, search_result: Dict[str, Any]) -> float:
         """Calculate content quality score (0.0 to 1.0)."""
         score = 0.0
         
@@ -177,16 +177,16 @@ class ContentQualityScorer:
         return max(0.0, min(1.0, score))
 
 class RelevanceScorer:
-    """Scores relevance of search results to the original query."""
+    """Scores relevance based on query matching and content analysis."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.stop_words = {
             'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
             'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have',
             'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should'
         }
     
-    def calculate_relevance_score(self, query: str, search_result: Dict, content: Optional[ScrapedContent] = None) -> float:
+    def calculate_relevance_score(self, query: str, search_result: Dict[str, Any], content: Optional[ScrapedContent] = None) -> float:
         """Calculate relevance score (0.0 to 1.0)."""
         query_terms = self._extract_terms(query.lower())
         
@@ -248,7 +248,7 @@ class RelevanceScorer:
 class SearchResultProcessingPipeline:
     """Main pipeline for processing search results with content extraction."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.quality_scorer = ContentQualityScorer()
         self.relevance_scorer = RelevanceScorer()
         
@@ -277,7 +277,7 @@ class SearchResultProcessingPipeline:
         stats = ProcessingStats(total_results=len(search_results))
         
         # Create processed results without scraping first
-        processed_results = []
+        processed_results: List[ProcessedSearchResult] = []
         for result in search_results:
             processed_result = ProcessedSearchResult(
                 title=result.get('title', ''),
@@ -298,55 +298,55 @@ class SearchResultProcessingPipeline:
             # Map scraped content back to results
             url_to_content = {content.url: content for content in scraped_contents}
             
-            for result in processed_results:
-                content = url_to_content.get(result.url)
+            for processed_result in processed_results:
+                content = url_to_content.get(processed_result.url)
                 if content:
-                    result.scraped_content = content
-                    result.full_text = content.text_content
-                    result.cleaned_content = content.content
-                    result.word_count = content.word_count
-                    result.content_length = content.content_length
-                    result.link_count = len(content.links)
-                    result.image_count = len(content.images)
-                    result.scrape_success = True
+                    processed_result.scraped_content = content
+                    processed_result.full_text = content.text_content
+                    processed_result.cleaned_content = content.content
+                    processed_result.word_count = content.word_count
+                    processed_result.content_length = content.content_length
+                    processed_result.link_count = len(content.links)
+                    processed_result.image_count = len(content.images)
+                    processed_result.scrape_success = True
                     stats.successfully_scraped += 1
                 else:
                     stats.failed_scrapes += 1
         
         # Calculate scores for all results
         total_relevance = 0.0
-        for result in processed_results:
+        for processed_result in processed_results:
             # Relevance score
-            result.relevance_score = self.relevance_scorer.calculate_relevance_score(
+            processed_result.relevance_score = self.relevance_scorer.calculate_relevance_score(
                 original_query,
                 {
-                    'title': result.title,
-                    'snippet': result.snippet,
-                    'url': result.url
+                    'title': processed_result.title,
+                    'snippet': processed_result.snippet,
+                    'url': processed_result.url
                 },
-                result.scraped_content
+                processed_result.scraped_content
             )
             
             # Quality and trust scores
-            if result.scraped_content:
-                result.content_quality_score = self.quality_scorer.calculate_quality_score(
-                    result.scraped_content,
+            if processed_result.scraped_content:
+                processed_result.content_quality_score = self.quality_scorer.calculate_quality_score(
+                    processed_result.scraped_content,
                     {
-                        'title': result.title,
-                        'snippet': result.snippet,
-                        'url': result.url
+                        'title': processed_result.title,
+                        'snippet': processed_result.snippet,
+                        'url': processed_result.url
                     }
                 )
             
-            result.trust_score = self.quality_scorer.calculate_trust_score(
-                result.url,
-                result.scraped_content
+            processed_result.trust_score = self.quality_scorer.calculate_trust_score(
+                processed_result.url,
+                processed_result.scraped_content
             )
             
-            total_relevance += result.relevance_score
+            total_relevance += processed_result.relevance_score
             
             # Update source stats
-            source = result.source
+            source = processed_result.source
             stats.content_sources[source] = stats.content_sources.get(source, 0) + 1
         
         # Calculate final stats
@@ -361,7 +361,7 @@ class SearchResultProcessingPipeline:
     async def _scrape_contents(self, urls: List[str], max_concurrent: int) -> List[ScrapedContent]:
         """Scrape content from multiple URLs concurrently."""
         async with EnhancedWebScrapingService() as scraper:
-            return await scraper.scrape_multiple_urls(urls, max_concurrent)
+            return await scraper.scrape_multiple_urls(urls, max_concurrent)  # type: ignore[no-any-return]
     
     def filter_results(
         self,

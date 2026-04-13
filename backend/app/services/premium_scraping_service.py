@@ -14,10 +14,23 @@ from urllib.parse import urlencode, quote_plus, urlparse
 import json
 import hashlib
 
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+try:
+    from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+except ImportError:
+    # Fallback types for when playwright is not available
+    Browser = Any
+    BrowserContext = Any
+    Page = Any
+    async_playwright = Any
+
 import httpx
 from bs4 import BeautifulSoup
-import fake_useragent
+
+try:
+    import fake_useragent
+except ImportError:
+    # Fallback for when fake_useragent is not available
+    fake_useragent = Any
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +61,9 @@ class BrowserConfig:
     viewport: Dict[str, int]
     locale: str = "en-US"
     timezone: str = "America/New_York"
-    permissions: List[str] = None
+    permissions: Optional[List[str]] = None
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.permissions is None:
             self.permissions = []
 
@@ -59,7 +72,7 @@ class PremiumScrapingService:
     Advanced scraping service for premium search engines without APIs
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.proxies: List[ProxyConfig] = []
         self.current_proxy_index = 0
         self.browser_configs: List[BrowserConfig] = []
@@ -98,31 +111,44 @@ class PremiumScrapingService:
             }
         }
 
-    def _init_browser_configs(self):
+    def _init_browser_configs(self) -> None:
         """Initialize realistic browser configurations"""
-        ua = fake_useragent.UserAgent()
+        # Fallback user agents when fake_useragent is not available
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ]
+        
+        try:
+            ua = fake_useragent.UserAgent()
+            chrome_ua = ua.chrome
+            firefox_ua = ua.firefox
+        except:
+            chrome_ua = user_agents[0]
+            firefox_ua = user_agents[1]
         
         configs = [
             BrowserConfig(
-                user_agent=ua.chrome,
+                user_agent=chrome_ua,
                 viewport={"width": 1920, "height": 1080},
                 locale="en-US",
                 timezone="America/New_York"
             ),
             BrowserConfig(
-                user_agent=ua.firefox,
+                user_agent=firefox_ua,
                 viewport={"width": 1366, "height": 768},
                 locale="en-US",
                 timezone="America/Los_Angeles"
             ),
             BrowserConfig(
-                user_agent=ua.safari,
+                user_agent=chrome_ua,  # Use chrome UA as fallback
                 viewport={"width": 1440, "height": 900},
                 locale="en-GB",
                 timezone="Europe/London"
             ),
             BrowserConfig(
-                user_agent=ua.edge,
+                user_agent=firefox_ua,  # Use firefox UA as fallback
                 viewport={"width": 1536, "height": 864},
                 locale="en-US",
                 timezone="America/Chicago"
@@ -131,7 +157,7 @@ class PremiumScrapingService:
         
         self.browser_configs = configs
 
-    def _init_proxies(self):
+    def _init_proxies(self) -> None:
         """Initialize proxy configurations (placeholder - would load from config)"""
         # In production, these would be loaded from configuration or proxy service
         # For demo, we'll use empty list (no proxy)
@@ -161,7 +187,7 @@ class PremiumScrapingService:
         """Get random browser configuration"""
         return random.choice(self.browser_configs)
 
-    async def _delay_for_engine(self, engine: EngineType):
+    async def _delay_for_engine(self, engine: EngineType) -> None:
         """Apply rate limiting delay for specific engine"""
         min_delay, max_delay = self.engine_delays.get(engine, (1.0, 3.0))
         delay = random.uniform(min_delay, max_delay)

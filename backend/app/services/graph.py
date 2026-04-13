@@ -7,7 +7,7 @@ using LangGraph for state management and agent coordination.
 
 import asyncio
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 
 from .state import (
@@ -46,7 +46,7 @@ class OSINTWorkflow:
     Manages the complete investigation lifecycle from planning to synthesis.
     """
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
          # Load environment variables from .env file
          load_dotenv()
          
@@ -103,7 +103,7 @@ class OSINTWorkflow:
         self, 
         user_request: str,
         investigation_id: Optional[str] = None,
-        **kwargs
+        **kwargs: Any
     ) -> InvestigationState:
         """
         Run a complete OSINT investigation.
@@ -569,14 +569,14 @@ async def search_coordination_node(state: InvestigationState) -> InvestigationSt
         objectives = state.get("objectives", {})
         strategy = state.get("strategy", {})
         
-        search_coordination_results = {
-           "surface_web_sources": [],
-           "social_media_sources": [],
-           "public_records_sources": [],
-           "dark_web_sources": [],
-           "coordination_status": "completed",
-           "sources_identified": 0
-        }
+        search_coordination_results: Dict[str, Any] = {
+            "surface_web_sources": [],
+            "social_media_sources": [],
+            "public_records_sources": [],
+            "dark_web_sources": [],
+            "coordination_status": "completed",
+            "sources_identified": 0
+         }
         
         # Determine appropriate sources based on investigation objectives (backward compatibility)
         if "web_search" in str(objectives).lower() or "surface" in str(objectives).lower():
@@ -764,7 +764,7 @@ async def data_collection_node(state: InvestigationState) -> InvestigationState:
                     extracted_urls.extend(result_data["citations"])
                 
                 # Extract URLs from any string content that might contain them
-                def extract_urls_from_content(content):
+                def extract_urls_from_content(content: Any) -> List[str]:
                     if isinstance(content, str):
                         # Simple URL extraction from string content
                         import re

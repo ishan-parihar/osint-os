@@ -185,7 +185,7 @@ class PremiumSearchAgent(OSINTAgent):
     def _hash_query(self, query: str) -> str:
         """Create hash for query identification"""
         import hashlib
-        return hashlib.md5(query.encode()).hexdigest()[:8]
+        return hashlib.sha256(query.encode()).hexdigest()[:8]
 
     def _assess_quality(self, result: Dict[str, Any]) -> float:
         """Assess quality of individual result"""

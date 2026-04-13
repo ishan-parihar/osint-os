@@ -25,7 +25,7 @@ class AIInvestigation(Base):
     def to_dict(self) -> Dict[str, Any]:
         """Convert AI investigation to dictionary."""
         return {
-            "id": self.id,
+            "id": self.uuid,
             "investigation_id": self.investigation_id,
             "title": self.title,
             "description": self.description,
@@ -49,7 +49,7 @@ class AgentExecutionLog(Base):
     def to_dict(self) -> Dict[str, Any]:
         """Convert agent execution log to dictionary."""
         return {
-            "id": self.id,
+            "id": self.uuid,
             "investigation_id": self.investigation_id,
             "agent_name": self.agent_name,
             "execution_data": self.execution_data,
@@ -70,7 +70,7 @@ class InvestigationState(Base):
     def to_dict(self) -> Dict[str, Any]:
         """Convert investigation state to dictionary."""
         return {
-            "id": self.id,
+            "id": self.uuid,
             "investigation_id": self.investigation_id,
             "state_data": self.state_data,
             "created_at": self.created_at.isoformat() if self.created_at else None,

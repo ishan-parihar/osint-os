@@ -196,7 +196,7 @@ def create_initial_state(
     
     current_time = datetime.utcnow()
     
-    state_dict = {
+    state_dict: InvestigationState = {
         "user_request": user_request,
         "investigation_id": investigation_id,
         "initiated_at": current_time,

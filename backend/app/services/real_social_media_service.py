@@ -21,8 +21,8 @@ class RealSocialMediaService:
     Service for performing actual social media data collection.
     """
     
-    def __init__(self):
-        self.session = None
+    def __init__(self) -> None:
+        self.session: Optional[aiohttp.ClientSession] = None
         self.rate_limiters = {
             'twitter': {'last_request': 0, 'min_delay': 2.0},
             'reddit': {'last_request': 0, 'min_delay': 1.0},
@@ -31,7 +31,7 @@ class RealSocialMediaService:
             'facebook': {'last_request': 0, 'min_delay': 2.0}
         }
     
-    async def __aenter__(self):
+    async def __aenter__(self) -> "RealSocialMediaService":
         """Async context manager entry."""
         self.session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=30),
@@ -39,12 +39,12 @@ class RealSocialMediaService:
         )
         return self
     
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Async context manager exit."""
         if self.session:
             await self.session.close()
     
-    async def _rate_limit(self, platform: str):
+    async def _rate_limit(self, platform: str) -> None:
         """Apply rate limiting for social media platforms."""
         if platform in self.rate_limiters:
             limiter = self.rate_limiters[platform]
@@ -68,6 +68,9 @@ class RealSocialMediaService:
         try:
             # Use Twitter's web interface for scraping
             url = f"https://twitter.com/{username}"
+            
+            if not self.session:
+                return {"error": "Session not initialized", "username": username}
             
             async with self.session.get(url) as response:
                 if response.status == 200:
@@ -156,6 +159,9 @@ class RealSocialMediaService:
         try:
             # Use Reddit's user profile page
             url = f"https://www.reddit.com/user/{username}/"
+            
+            if not self.session:
+                return {"error": "Session not initialized", "username": username}
             
             async with self.session.get(url) as response:
                 if response.status == 200:
@@ -260,6 +266,9 @@ class RealSocialMediaService:
                 'Connection': 'keep-alive'
             }
             
+            if not self.session:
+                return []
+            
             async with self.session.get(url, params=params, headers=headers) as response:
                 if response.status == 200:
                     html = await response.text()
@@ -334,6 +343,9 @@ class RealSocialMediaService:
                 'sort': 'relevance',
                 't': 'all'
             }
+            
+            if not self.session:
+                return []
             
             async with self.session.get(url, params=params) as response:
                 if response.status == 200:
@@ -439,7 +451,7 @@ class RealSocialMediaService:
             return {"error": str(e), "username": username, "platform": platform}
 
 
-async def perform_social_media_search(platform: str, search_type: str, **kwargs) -> Dict[str, Any]:
+async def perform_social_media_search(platform: str, search_type: str, **kwargs: Any) -> Dict[str, Any]:
     """
     Convenience function to perform social media searches.
     

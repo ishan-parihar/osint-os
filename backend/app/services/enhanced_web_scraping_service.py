@@ -4,13 +4,16 @@ Implements real content extraction with BeautifulSoup, rate limiting, and conten
 """
 
 import asyncio
+import hashlib
 import logging
 import re
 import time
-from typing import List, Dict, Optional, Any, Set
-from urllib.parse import urlparse, urljoin
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from types import TracebackType
+from typing import Any, Dict, List, Optional, Set, Type
+from urllib.parse import urljoin, urlparse
+
 import httpx
 from bs4 import BeautifulSoup
 import html2text
@@ -44,7 +47,7 @@ class RateLimitInfo:
 class RateLimiter:
     """Implements rate limiting and politeness policies."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.domain_limits: Dict[str, RateLimitInfo] = {}
         self.global_last_request = datetime.now()
         self.min_delay = settings.SCRAPE_DELAY_SECONDS
@@ -92,7 +95,7 @@ class RateLimiter:
         
         return True
     
-    async def release(self):
+    async def release(self) -> None:
         """Release request slot."""
         if self.current_requests > 0:
             self.current_requests -= 1
@@ -100,7 +103,7 @@ class RateLimiter:
 class ContentCleaner:
     """Handles content cleaning and normalization."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.html_converter = html2text.HTML2Text()
         self.html_converter.ignore_links = False
         self.html_converter.ignore_images = False
@@ -147,9 +150,9 @@ class ContentCleaner:
         # Meta tags
         meta_tags = soup.find_all('meta')
         for meta in meta_tags:
-            name = meta.get('name', '').lower()
-            property_attr = meta.get('property', '').lower()
-            content = meta.get('content', '')
+            name = str(meta.get('name') or '').lower()
+            property_attr = str(meta.get('property') or '').lower()
+            content = str(meta.get('content') or '')
             
             if content:
                 if name in ['description', 'keywords', 'author']:
@@ -160,7 +163,7 @@ class ContentCleaner:
         # Language
         html_tag = soup.find('html')
         if html_tag and html_tag.get('lang'):
-            metadata['language'] = html_tag.get('lang')
+            metadata['language'] = str(html_tag.get('lang') or '')
         
         return metadata
     
@@ -168,7 +171,7 @@ class ContentCleaner:
         """Extract all links from the page."""
         links = set()
         for link in soup.find_all('a', href=True):
-            href = link['href']
+            href = str(link.get('href') or '')
             # Convert relative URLs to absolute
             if href.startswith('/'):
                 href = urljoin(base_url, href)
@@ -185,7 +188,7 @@ class ContentCleaner:
         """Extract all image URLs from the page."""
         images = set()
         for img in soup.find_all('img', src=True):
-            src = img['src']
+            src = str(img.get('src') or '')
             # Convert relative URLs to absolute
             if src.startswith('/'):
                 src = urljoin(base_url, src)
@@ -199,7 +202,7 @@ class ContentCleaner:
 class EnhancedWebScrapingService:
     """Enhanced web scraping service with rate limiting and content processing."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.rate_limiter = RateLimiter()
         self.content_cleaner = ContentCleaner()
         self.session: Optional[httpx.AsyncClient] = None
@@ -207,7 +210,7 @@ class EnhancedWebScrapingService:
         self.timeout = 30
         self.max_content_length = 5 * 1024 * 1024  # 5MB limit
         
-    async def __aenter__(self):
+    async def __aenter__(self) -> "EnhancedWebScrapingService":
         """Async context manager entry."""
         self.session = httpx.AsyncClient(
             timeout=httpx.Timeout(self.timeout),
@@ -217,7 +220,7 @@ class EnhancedWebScrapingService:
         )
         return self
     
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Async context manager exit."""
         if self.session:
             await self.session.aclose()
@@ -245,6 +248,8 @@ class EnhancedWebScrapingService:
             await self.rate_limiter.acquire(domain)
             
             # Make request
+            if self.session is None:
+                raise RuntimeError("Session not initialized. Use async context manager.")
             response = await self.session.get(url)
             response.raise_for_status()
             
@@ -315,7 +320,7 @@ class EnhancedWebScrapingService:
         # Try og:title
         og_title = soup.find('meta', property='og:title')
         if og_title and og_title.get('content'):
-            return og_title['content']
+            return str(og_title.get('content') or '')
         
         # Try h1 tag
         h1_tag = soup.find('h1')
@@ -325,7 +330,7 @@ class EnhancedWebScrapingService:
         # Fallback to domain
         return "Untitled Page"
     
-    async def scrape_multiple_urls(self, urls: List[str], max_concurrent: int = None) -> List[ScrapedContent]:
+    async def scrape_multiple_urls(self, urls: List[str], max_concurrent: Optional[int] = None) -> List[ScrapedContent]:
         """
         Scrape multiple URLs with concurrency control.
         
@@ -368,6 +373,8 @@ class EnhancedWebScrapingService:
                 return False
             
             # Make a lightweight HEAD request first
+            if self.session is None:
+                raise RuntimeError("Session not initialized. Use async context manager.")
             response = await self.session.head(url)
             return response.status_code == 200
             

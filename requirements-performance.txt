@@ -1,0 +1,37 @@
+# OSINT-OS Performance Testing Requirements
+
+# Load Testing Tools
+locust>=2.17.0
+pytest-benchmark>=4.0.0
+pytest-asyncio>=0.21.0
+aiohttp>=3.10.0
+
+# Performance Monitoring
+psutil>=5.9.0
+memory-profiler>=0.61.0
+py-spy>=0.3.14
+line-profiler>=4.1.0
+
+# Database Performance
+sqlalchemy-utils>=0.41.0
+pgbench>=1.0  # PostgreSQL benchmarking tool
+
+# WebSocket Testing
+websockets>=12.0
+websockets-client>=0.1.0
+
+# Metrics and Reporting
+prometheus-client>=0.18.0
+grafana-api>=1.0.3
+matplotlib>=3.8.0
+seaborn>=0.12.0
+pandas>=2.1.0
+
+# Concurrent Testing
+asyncio>=3.4.3
+concurrent-futures>=3.1.1
+threading>=1.0.0
+
+# HTTP Performance Testing
+httpx>=0.27.0
+requests>=2.31.0

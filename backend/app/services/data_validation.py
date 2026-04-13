@@ -5,7 +5,7 @@ Validates search results quality, source reliability, and content relevance.
 
 import re
 import logging
-from typing import List, Dict, Any, Optional, Set, Tuple
+from typing import List, Dict, Any, Optional, Set, Tuple, Callable
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
@@ -38,7 +38,7 @@ class ValidationRule:
     """Individual validation rule."""
     name: str
     description: str
-    validator_func: callable
+    validator_func: Callable[[str, str, str, Optional["ScrapedContent"]], bool]
     weight: float = 1.0
     level: ValidationLevel = ValidationLevel.MODERATE
 
@@ -67,7 +67,7 @@ class SourceReliability:
 class SourceReliabilityAssessment:
     """Assesses source reliability based on various factors."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         # Known reliable sources
         self.reliable_domains = {
             # Academic/Government
@@ -152,7 +152,7 @@ class SourceReliabilityAssessment:
                     return category.value
         return "general"
     
-    def update_reliability(self, domain: str, feedback: bool):
+    def update_reliability(self, domain: str, feedback: bool) -> None:
         """Update reliability based on user feedback."""
         # Simple feedback mechanism - could be enhanced with ML
         if domain in self.reliable_domains:
@@ -164,7 +164,7 @@ class SourceReliabilityAssessment:
 class ContentValidator:
     """Validates content quality and relevance."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.validation_rules = self._initialize_rules()
         self.spam_indicators = [
             r'click here',
@@ -242,7 +242,7 @@ class ContentValidator:
         """Validate a search result."""
         rule_results = {}
         violations = []
-        warnings = []
+        warnings: list[str] = []
         total_score = 0.0
         total_weight = 0.0
         
@@ -295,7 +295,7 @@ class ContentValidator:
     def _validate_content_length(self, title: str, snippet: str, url: str, content: Optional[ScrapedContent]) -> bool:
         """Validate content length."""
         if content:
-            length = content.content_length
+            length = int(content.content_length)
             return self.min_content_length <= length <= self.max_content_length
         else:
             # Fall back to snippet length
@@ -481,7 +481,7 @@ class ContentValidator:
 class DataValidationFramework:
     """Main framework for data validation."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.source_assessor = SourceReliabilityAssessment()
         self.content_validator = ContentValidator()
     
@@ -490,7 +490,7 @@ class DataValidationFramework:
         search_results: List[Dict[str, Any]],
         scraped_contents: Optional[Dict[str, ScrapedContent]] = None,
         level: ValidationLevel = ValidationLevel.MODERATE
-    ) -> List[Tuple[Dict, ValidationResult]]:
+    ) -> List[Tuple[Dict[str, Any], ValidationResult]]:
         """Validate multiple search results."""
         validated_results = []
         
@@ -512,9 +512,9 @@ class DataValidationFramework:
     
     def filter_valid_results(
         self,
-        validated_results: List[Tuple[Dict, ValidationResult]],
+        validated_results: List[Tuple[Dict[str, Any], ValidationResult]],
         min_score: float = 0.6
-    ) -> List[Dict]:
+    ) -> List[Dict[str, Any]]:
         """Filter results based on validation scores."""
         valid_results = []
         
@@ -524,13 +524,13 @@ class DataValidationFramework:
         
         return valid_results
     
-    def get_validation_summary(self, validated_results: List[Tuple[Dict, ValidationResult]]) -> Dict[str, Any]:
+    def get_validation_summary(self, validated_results: List[Tuple[Dict[str, Any], ValidationResult]]) -> Dict[str, Any]:
         """Get summary of validation results."""
         total_count = len(validated_results)
         valid_count = sum(1 for _, validation in validated_results if validation.is_valid)
         
         # Category distribution
-        category_counts = {}
+        category_counts: dict[str, int] = {}
         for _, validation in validated_results:
             category = validation.category.value
             category_counts[category] = category_counts.get(category, 0) + 1
@@ -541,7 +541,7 @@ class DataValidationFramework:
         avg_freshness = sum(validation.freshness_score for _, validation in validated_results) / total_count
         
         # Common violations
-        violation_counts = {}
+        violation_counts: dict[str, int] = {}
         for _, validation in validated_results:
             for violation in validation.violations:
                 violation_counts[violation] = violation_counts.get(violation, 0) + 1

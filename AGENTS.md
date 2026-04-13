@@ -5,51 +5,50 @@
 ### Backend (FastAPI)
 ```bash
 cd backend
-python dev_server.py                    # Start development server
-pytest -v                              # Run all tests
-pytest tests/test_specific.py -v       # Run single test file
-pytest tests/test_specific.py::test_method -v  # Run single test method
+python dev_server.py                    # Start dev server (port 8000)
+python main.py                          # Production server
+pytest -v --cov=app                     # Run tests with coverage
+pytest -m unit                          # Run unit tests only
+pytest -m integration                   # Run integration tests
+pytest -m api                           # Run API endpoint tests
 ```
 
 ### Frontend (React/TypeScript)
 ```bash
 cd frontend
-npm start                               # Start development server
-npm test                                # Run all tests
-npm test -- --testPathPattern=specific.test  # Run single test file
-npm run build                           # Production build
+npm start                               # Start dev server (port 4000)
+npm run test:coverage                   # Run tests with coverage
+npm run test:components                 # Test components only
+npm run test:services                   # Test services only
+npm run lint                            # ESLint check
+npm run format                          # Prettier formatting
+npm run type-check                      # TypeScript type checking
 ```
 
-### Python CLI & AI Agent
+### Root Level Testing
 ```bash
-python -m pytest -v                    # Run all tests
-python -m pytest tests/test_specific.py -v  # Run single test
-python osint_cli.py --help             # Test CLI functionality
+pytest -v                               # Run all project tests
+pytest tests/e2e/ -v                    # End-to-end tests
+pytest tests/security/ -v               # Security tests
 ```
 
-## Code Style Guidelines
+## Code Quality Tools
 
-### Python
-- **Formatting**: `black .` (line length 88)
+### Python (configured in pyproject.toml)
+- **Formatting**: `black .` (line length 88, py311)
 - **Linting**: `ruff check .` then `ruff format .`
-- **Imports**: `isort .` (stdlib → third-party → local)
-- **Type Checking**: `mypy .` with strict mode
-- **Naming**: `snake_case` for functions/variables, `PascalCase` for classes
+- **Type Checking**: `mypy .` (strict mode, excludes tests/migrations)
+- **Security**: `bandit -r .` (excludes tests/migrations)
+- **Coverage**: pytest --cov=app --cov-fail-under=80
 
-### TypeScript/React
-- **Components**: Functional components with hooks
-- **Types**: Strict TypeScript, interface over type
-- **Naming**: `PascalCase` for components/types, `camelCase` for variables
-- **Imports**: React imports first, then third-party, then local
+### TypeScript/React (configured in package.json)
+- **Linting**: `npm run lint` (ESLint + TypeScript rules)
+- **Formatting**: `npm run format` (Prettier)
+- **Testing**: Jest with 80% coverage threshold
+- **Type Checking**: `npm run type-check`
 
-### Error Handling
-- Use structured logging with timestamps
-- Implement comprehensive try/catch blocks
-- Async/await patterns with proper error propagation
-- Validate inputs at API boundaries
-
-### Testing
-- Unit tests with pytest (Python) and Jest (React)
-- Integration tests for API endpoints
-- Minimum 80% code coverage required
-- Test files named `test_*.py` or `*.test.ts`
+### Development Patterns
+- Test files: `test_*.py`, `*_test.py`, `*.test.ts`, `*.spec.ts`
+- Use pytest markers: @pytest.mark.unit, @pytest.mark.integration, @pytest.mark.api
+- Frontend components: Functional with hooks, Zustand for state management
+- Error handling: Structured logging, comprehensive try/catch, async/await patterns

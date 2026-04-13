@@ -19,6 +19,7 @@ class WorkflowManager:
     
     def __init__(self, connection_manager: ConnectionManager):
         # Initialize database persistence service
+        self.db_persistence: Optional[Any] = None
         try:
             from .database import DatabasePersistenceService
             self.db_persistence = DatabasePersistenceService()
@@ -311,7 +312,7 @@ class WorkflowManager:
         self, 
         workflow: WorkflowState, 
         result: Dict[str, Any]
-    ):
+    ) -> None:
         """Update workflow state from agent result."""
         # Update phase
         new_phase = WorkflowPhase(result["phase"])
@@ -359,7 +360,7 @@ class WorkflowManager:
                     triggered_by="agent"
                 ))
     
-    async def _broadcast_workflow_update(self, workflow: WorkflowState):
+    async def _broadcast_workflow_update(self, workflow: WorkflowState) -> None:
         """Broadcast workflow state update to connected clients."""
         await self.connection_manager.broadcast({
             "type": "workflow_update",
