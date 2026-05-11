@@ -49,3 +49,9 @@ backup_scrapecraft_20251104_195449.tar.gz
 .contexty
 .memsearch
 .hive
+
+# Metadata directories (AI agent session data, tool calls, plans)
+.hive/
+.memsearch/
+.contexty/
+.sisyphus/
