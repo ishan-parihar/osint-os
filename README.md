@@ -458,3 +458,7 @@ For commercial deployments and enterprise support, please contact us at:
 Made with ❤️ for the global intelligence community
 
 </div>
+
+---
+
+Developed by [Ishan Parihar](https://github.com/ishanparihar) — If you find this useful, [consider supporting](https://rzp.io/rzp/ishan-parihar)
