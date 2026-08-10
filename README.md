@@ -1,5 +1,10 @@
 # 🕵️‍♂️ ScrapeCraft OSINT Platform
 
+> ⚠️ **DEPRECATED / INACTIVE** — archived for reference. This experimental project is
+> superseded by [`igs-rust`](https://github.com/ishan-parihar/igs-rust) (intelligence
+> gathering system, 411 sources across 47 countries) and the `social-forge` provider
+> stack. No further development is planned.
+
 **Intelligence Agency-Grade OSINT Investigation Platform with AI-Powered Agents and Enterprise Security**
 
 > **The Problem**: Most OSINT tools are designed for individual analysts and lack the security, collaboration, and orchestration capabilities required for intelligence-agency-grade operations. The challenge was to build a platform that could coordinate dozens of specialized agents across a secure, zero-trust infrastructure while allowing multiple analysts to collaborate in real-time on a single investigation.
