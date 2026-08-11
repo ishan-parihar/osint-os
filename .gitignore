@@ -55,3 +55,9 @@ backup_scrapecraft_20251104_195449.tar.gz
 .memsearch/
 .contexty/
 .sisyphus/
+
+# Confidentiality: never commit real env files (config/.env.test contained a live API key)
+config/.env.test
+.env.*
+!.env.example
+!config/.env.example
